@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>색상 팔레트 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+
+    .swatch { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .swatch:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+    .swatch:active { transform: scale(0.96); }
+
+    /* Color picker canvas area */
+    .picker-canvas { cursor: crosshair; border-radius: 12px; display: block; }
+
+    /* Hue & alpha slider thumb */
+    .hue-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 14px;
+      border-radius: 999px;
+      outline: none;
+      cursor: pointer;
+      background: linear-gradient(to right,
+        #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+    }
+    .hue-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: white;
+      border: 2px solid rgba(0,0,0,0.3);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+      cursor: grab;
+    }
+    .hue-slider::-moz-range-thumb {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: white;
+      border: 2px solid rgba(0,0,0,0.3);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+      cursor: grab;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.3s ease forwards; }
+
+    @keyframes toastIn  { from { opacity:0; transform:translateY(16px) scale(.95); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes toastOut { from { opacity:1; transform:translateY(0) scale(1); } to { opacity:0; transform:translateY(16px) scale(.95); } }
+    .toast-enter { animation: toastIn  0.22s ease forwards; }
+    .toast-exit  { animation: toastOut 0.22s ease forwards; }
+  </style>
+</head>
+<body class="bg-gray-950 min-h-screen text-white">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useCallback, useRef, useEffect, useMemo } = React;
+
+    // ========================================
+    // 🛠️ Color Utilities
+    // ========================================
+    function hexToRgb(hex) {
+      const clean = hex.replace('#', '');
+      const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean;
+      const n = parseInt(full, 16);
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    }
+    function rgbToHex({ r, g, b }) {
+      return '#' + [r,g,b].map(v => Math.round(Math.max(0, Math.min(255,v))).toString(16).padStart(2,'0')).join('');
+    }
+    function rgbToHsl({ r, g, b }) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r,g,b), min = Math.min(r,g,b);
+      let h, s, l = (max+min)/2;
+      if (max === min) { h = s = 0; }
+      else {
+        const d = max - min;
+        s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+        switch(max) {
+          case r: h = ((g-b)/d + (g<b?6:0))/6; break;
+          case g: h = ((b-r)/d + 2)/6; break;
+          case b: h = ((r-g)/d + 4)/6; break;
+        }
+      }
+      return { h: h*360, s: s*100, l: l*100 };
+    }
+    function hslToRgb({ h, s, l }) {
+      h /= 360; s /= 100; l /= 100;
+      if (s === 0) { const v = Math.round(l*255); return { r:v, g:v, b:v }; }
+      const hue2rgb = (p,q,t) => {
+        if (t<0) t+=1; if (t>1) t-=1;
+        if (t<1/6) return p+(q-p)*6*t;
+        if (t<1/2) return q;
+        if (t<2/3) return p+(q-p)*(2/3-t)*6;
+        return p;
+      };
+      const q = l<0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+      return { r:Math.round(hue2rgb(p,q,h+1/3)*255), g:Math.round(hue2rgb(p,q,h)*255), b:Math.round(hue2rgb(p,q,h-1/3)*255) };
+    }
+    function hslToHex(hsl) { return rgbToHex(hslToRgb(hsl)); }
+    function hsv2rgb({ h, s, v }) {
+      s /= 100; v /= 100;
+      const f = (n) => { const k=(n+h/60)%6; return v - v*s*Math.max(0, Math.min(k, 4-k, 1)); };
+      return { r: Math.round(f(5)*255), g: Math.round(f(3)*255), b: Math.round(f(1)*255) };
+    }
+    function rgb2hsv({ r, g, b }) {
+      r/=255; g/=255; b/=255;
+      const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+      let h=0;
+      if (d !== 0) {
+        switch(max) {
+          case r: h = ((g-b)/d + (g<b?6:0))*60; break;
+          case g: h = ((b-r)/d+2)*60; break;
+          case b: h = ((r-g)/d+4)*60; break;
+        }
+      }
+      return { h, s: max===0?0:(d/max)*100, v: max*100 };
+    }
+    function brightness(hex) { const {r,g,b}=hexToRgb(hex); return (r*299+g*587+b*114)/1000; }
+
+    // ========================================
+    // 🎨 Palette Generation
+    // ========================================
+    function generateTints(hex, count=5) {
+      const hsl = rgbToHsl(hexToRgb(hex));
+      return Array.from({length:count},(_,i) => {
+        const f=(i+1)/(count+1);
+        return hslToHex({ h:hsl.h, s:hsl.s*(1-f*0.3), l:hsl.l+(100-hsl.l)*f*0.85 });
+      }).reverse();
+    }
+    function generateShades(hex, count=5) {
+      const hsl = rgbToHsl(hexToRgb(hex));
+      return Array.from({length:count},(_,i) => {
+        const f=(i+1)/(count+1);
+        return hslToHex({ h:hsl.h, s:Math.min(100,hsl.s*(1+f*0.1)), l:hsl.l*(1-f*0.85) });
+      });
+    }
+    function buildPalettes(hex) {
+      const hsl = rgbToHsl(hexToRgb(hex));
+      const H = hsl.h, S = hsl.s, L = hsl.l;
+      const h = (deg) => hslToHex({ h:(H+deg+360)%360, s:S, l:L });
+      const t = (deg,sf=0.4,lf=35) => hslToHex({ h:(H+deg+360)%360, s:S*sf, l:Math.min(95,L+lf) });
+      return [
+        { name:'보색', sub:'Complementary', colors:[
+            hex, t(0), hslToHex({h:H,s:S*0.12,l:Math.min(97,L+48)}), t(180), h(180)
+          ]},
+        { name:'유사색', sub:'Analogous', colors:[-40,-20,0,20,40].map(o=>h(o)) },
+        { name:'삼색', sub:'Triadic', colors:[
+            hex, t(0,0.5,28), h(120),
+            hslToHex({h:(H+120)%360,s:S*0.5,l:Math.min(92,L+28)}), h(240)
+          ]},
+        { name:'분열보색', sub:'Split-Complementary', colors:[
+            hex, t(0,0.35,32),
+            hslToHex({h:(H+180)%360,s:S*0.2,l:Math.min(96,L+44)}),
+            h(150), h(210)
+          ]},
+        { name:'사각형', sub:'Tetradic', colors:[
+            h(0), h(90), h(180), h(270),
+            hslToHex({h:H,s:S*0.12,l:Math.min(97,L+50)})
+          ]},
+      ];
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Toast({ message, visible }) {
+      return (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-white text-gray-900 rounded-xl text-sm font-medium shadow-2xl pointer-events-none ${visible?'toast-enter':'toast-exit'}`}
+          style={{opacity: visible?1:0}}>
+          {message}
+        </div>
+      );
+    }
+
+    function Swatch({ hex, size='md', label, onCopy }) {
+      const h = { sm:'h-14 rounded-xl', md:'h-20 rounded-xl', lg:'h-28 rounded-2xl' }[size];
+      const bright = brightness(hex);
+      const tc = bright > 128 ? 'text-black/70' : 'text-white/80';
+      return (
+        <div className={`swatch flex flex-col items-center justify-end pb-2 cursor-pointer select-none ${h}`}
+          style={{backgroundColor: hex}} onClick={()=>onCopy(hex)} title="클릭하여 복사">
+          <span className={`text-[10px] font-mono font-semibold ${tc} tracking-wider leading-tight`}>
+            {hex.toUpperCase()}
+          </span>
+          {label && <span className={`text-[9px] font-mono ${tc} opacity-70`}>{label}</span>}
+        </div>
+      );
+    }
+
+    function PaletteCard({ palette, onCopy }) {
+      return (
+        <div className="bg-gray-900 rounded-2xl p-5 fade-up">
+          <div className="flex items-baseline gap-2 mb-4">
+            <h3 className="text-white font-semibold">{palette.name}</h3>
+            <span className="text-gray-500 text-xs">{palette.sub}</span>
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {palette.colors.map((hex,i) => <Swatch key={i} hex={hex} size="md" onCopy={onCopy} />)}
+          </div>
+        </div>
+      );
+    }
+
+    function Section({ title, children }) {
+      return (
+        <section className="mb-10">
+          <h2 className="text-gray-400 text-xs font-semibold uppercase tracking-widest mb-4">{title}</h2>
+          {children}
+        </section>
+      );
+    }
+
+    // ========================================
+    // 🎡 Color Picker Component
+    // ========================================
+    function ColorPicker({ hsv, onChange }) {
+      const canvasRef = useRef(null);
+      const dragging = useRef(false);
+
+      // Draw SV gradient on canvas
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+
+        // White → pure hue (horizontal)
+        const gradH = ctx.createLinearGradient(0, 0, W, 0);
+        gradH.addColorStop(0, 'white');
+        gradH.addColorStop(1, `hsl(${hsv.h}, 100%, 50%)`);
+        ctx.fillStyle = gradH;
+        ctx.fillRect(0, 0, W, H);
+
+        // Transparent → black (vertical)
+        const gradV = ctx.createLinearGradient(0, 0, 0, H);
+        gradV.addColorStop(0, 'rgba(0,0,0,0)');
+        gradV.addColorStop(1, 'rgba(0,0,0,1)');
+        ctx.fillStyle = gradV;
+        ctx.fillRect(0, 0, W, H);
+      }, [hsv.h]);
+
+      const pickAt = useCallback((e, canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+        const y = Math.max(0, Math.min(clientY - rect.top, rect.height));
+        const s = (x / rect.width) * 100;
+        const v = (1 - y / rect.height) * 100;
+        onChange({ ...hsv, s, v });
+      }, [hsv, onChange]);
+
+      const onMouseDown = (e) => { dragging.current = true; pickAt(e, canvasRef.current); };
+      const onMouseMove = (e) => { if (dragging.current) pickAt(e, canvasRef.current); };
+      const onMouseUp   = () => { dragging.current = false; };
+
+      useEffect(() => {
+        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('touchend', onMouseUp);
+        return () => { window.removeEventListener('mouseup', onMouseUp); window.removeEventListener('touchend', onMouseUp); };
+      }, []);
+
+      // Cursor position
+      const cx = `${hsv.s}%`;
+      const cy = `${100 - hsv.v}%`;
+      const cursorRgb = hsv2rgb(hsv);
+      const cursorHex = rgbToHex(cursorRgb);
+      const cursorBright = brightness(cursorHex);
+
+      return (
+        <div className="relative w-full" style={{paddingBottom:'66%'}}>
+          <canvas
+            ref={canvasRef}
+            width={600} height={400}
+            className="picker-canvas absolute inset-0 w-full h-full"
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onTouchStart={e=>{dragging.current=true; pickAt(e,canvasRef.current);}}
+            onTouchMove={e=>{ if(dragging.current) pickAt(e,canvasRef.current); }}
+          />
+          {/* Cursor */}
+          <div
+            className="absolute w-5 h-5 rounded-full border-2 -translate-x-1/2 -translate-y-1/2 pointer-events-none shadow-md"
+            style={{
+              left: cx, top: cy,
+              borderColor: cursorBright > 128 ? 'rgba(0,0,0,0.6)' : 'white',
+              backgroundColor: cursorHex,
+            }}
+          />
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 App Component
+    // ========================================
+    function App() {
+      // HSV as source of truth for picker
+      const initHsv = rgb2hsv(hexToRgb('#6366F1'));
+      const [hsv, setHsv] = useState(initHsv);
+      const [toast, setToast] = useState({ msg:'', visible:false });
+      const toastTimer = useRef(null);
+
+      const activeHex = useMemo(() => rgbToHex(hsv2rgb(hsv)), [hsv]);
+      const rgb = useMemo(() => hexToRgb(activeHex), [activeHex]);
+      const hsl = useMemo(() => rgbToHsl(rgb), [rgb]);
+
+      const showToast = useCallback((hex) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        navigator.clipboard?.writeText(hex).catch(()=>{});
+        setToast({ msg:`${hex.toUpperCase()} 복사됨!`, visible:true });
+        toastTimer.current = setTimeout(()=>setToast(t=>({...t,visible:false})), 1800);
+      }, []);
+
+      const tints      = useMemo(()=>generateTints(activeHex,5),  [activeHex]);
+      const shades     = useMemo(()=>generateShades(activeHex,5), [activeHex]);
+      const scaleAll   = useMemo(()=>[...tints, activeHex, ...shades], [tints, activeHex, shades]);
+      const palettes   = useMemo(()=>buildPalettes(activeHex), [activeHex]);
+
+      const hueHex = rgbToHex(hsv2rgb({ h:hsv.h, s:100, v:100 }));
+
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          {/* Header */}
+          <header className="mb-10">
+            <h1 className="text-3xl font-bold text-white tracking-tight">색상 팔레트 생성기</h1>
+            <p className="text-gray-400 mt-1 text-sm">컬러 판에서 색상을 선택하면 팔레트가 자동으로 생성됩니다</p>
+          </header>
+
+          {/* Color Picker Panel */}
+          <div className="bg-gray-900 rounded-2xl p-5 mb-8">
+            {/* SV Canvas */}
+            <ColorPicker hsv={hsv} onChange={setHsv} />
+
+            {/* Hue Slider */}
+            <div className="mt-4">
+              <input
+                type="range" min="0" max="360" step="1"
+                value={Math.round(hsv.h)}
+                onChange={e => setHsv(prev => ({ ...prev, h: parseFloat(e.target.value) }))}
+                className="hue-slider w-full"
+              />
+            </div>
+
+            {/* Color info row */}
+            <div className="mt-4 flex items-center gap-4">
+              {/* Big preview swatch */}
+              <div className="w-14 h-14 rounded-xl flex-shrink-0 border border-white/10 shadow-inner"
+                style={{backgroundColor: activeHex}} />
+
+              {/* Codes */}
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={()=>showToast(activeHex)}
+                  className="text-left group"
+                  title="클릭하여 복사"
+                >
+                  <span className="text-gray-400 text-xs">HEX</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-white font-mono text-xl font-semibold tracking-wider">
+                      {activeHex.toUpperCase()}
+                    </span>
+                    <span className="text-gray-600 text-xs group-hover:text-gray-400 transition-colors">복사</span>
+                  </div>
+                </button>
+                <div className="flex gap-4 text-xs font-mono text-gray-400">
+                  <span>RGB <span className="text-gray-200">{rgb.r}, {rgb.g}, {rgb.b}</span></span>
+                  <span>HSL <span className="text-gray-200">{Math.round(hsl.h)}° {Math.round(hsl.s)}% {Math.round(hsl.l)}%</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tints & Shades */}
+          <Section title="밝기 변형 스케일">
+            <div className="bg-gray-900 rounded-2xl p-5 fade-up">
+              <div className="flex gap-1.5">
+                {scaleAll.map((hex, i) => {
+                  const isBase = i === 5;
+                  const label = isBase ? '기본' : i < 5 ? `T${5-i}` : `S${i-5}`;
+                  return (
+                    <div key={i} className="flex-1 flex flex-col gap-1">
+                      <Swatch hex={hex} size={isBase?'lg':'sm'} onCopy={showToast} />
+                      <span className="text-[9px] font-mono text-gray-500 text-center">{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Section>
+
+          {/* Harmony Palettes */}
+          <Section title="컬러 조합 팔레트 (각 5색 고정)">
+            <div className="flex flex-col gap-4">
+              {palettes.map((p,i) => <PaletteCard key={i} palette={p} onCopy={showToast} />)}
+            </div>
+          </Section>
+
+          <p className="text-center text-gray-600 text-xs mt-8">스와치를 클릭하면 HEX 코드가 복사됩니다</p>
+
+          <Toast message={toast.msg} visible={toast.visible} />
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
