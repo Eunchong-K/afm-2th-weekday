@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>더치페이 계산기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body {
+      background: #100820;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    /* ── 글래스 패널 ── */
+    .glass {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 12px;
+    }
+    .glass-inner {
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+    }
+
+    /* ── 3D 버튼 ── */
+    .btn {
+      cursor: pointer; border: none; border-radius: 8px;
+      font-size: 11px; font-weight: 600; padding: 0 10px; height: 26px;
+      transition: transform 0.1s, box-shadow 0.1s;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .btn:active { transform: translateY(2px); }
+    .btn-purple {
+      background: linear-gradient(160deg, #9f67ff, #6d28d9);
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(109,40,217,0.55), inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+    .btn-purple:active { box-shadow: 0 1px 4px rgba(109,40,217,0.4), inset 0 2px 4px rgba(0,0,0,0.25); }
+    .btn-gold {
+      background: linear-gradient(160deg, #fbbf24, #d97706);
+      color: #1c0a00;
+      box-shadow: 0 4px 10px rgba(217,119,6,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
+    }
+    .btn-gold:active { box-shadow: 0 1px 4px rgba(217,119,6,0.4), inset 0 2px 4px rgba(0,0,0,0.15); }
+    .btn-red {
+      background: linear-gradient(160deg, #f87171, #b91c1c);
+      color: #fff;
+      box-shadow: 0 3px 8px rgba(185,28,28,0.5), inset 0 1px 0 rgba(255,255,255,0.18);
+      width: 22px; height: 22px; padding: 0; border-radius: 6px;
+    }
+    .btn-red:active { box-shadow: 0 1px 3px rgba(185,28,28,0.4), inset 0 1px 3px rgba(0,0,0,0.2); }
+    .btn-ghost {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.5);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.25);
+    }
+
+    /* ── 인풋 ── */
+    .inp {
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 7px;
+      color: #fff; font-size: 11px; outline: none;
+      padding: 0 8px; height: 26px;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.35);
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .inp:focus { border-color: rgba(139,92,246,0.6); box-shadow: inset 0 2px 5px rgba(0,0,0,0.35), 0 0 0 2px rgba(139,92,246,0.2); }
+    .inp::placeholder { color: rgba(255,255,255,0.22); }
+    .inp-sm { height: 22px; font-size: 10px; padding: 0 6px; }
+
+    /* ── 인원칩 (3상태) ── */
+    .pchip {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 20px; padding: 0 7px; border-radius: 20px;
+      font-size: 10px; font-weight: 600; cursor: pointer; user-select: none;
+      transition: all 0.12s; white-space: nowrap;
+    }
+    .pchip:active { transform: scale(0.9); }
+    .pchip-none  { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.35); }
+    .pchip-part  { background: linear-gradient(145deg,#9f67ff,#6d28d9); border: 1px solid transparent; color: #fff; box-shadow: 0 2px 6px rgba(109,40,217,0.5); }
+    .pchip-pay   { background: linear-gradient(145deg,#fbbf24,#d97706); border: 1px solid transparent; color: #1c0a00; box-shadow: 0 2px 6px rgba(217,119,6,0.5); }
+
+    /* ── 구분선 ── */
+    .div { border-top: 1px solid rgba(255,255,255,0.07); margin: 0; }
+
+    /* ── 결과 행 ── */
+    .tr-row { background: rgba(245,158,11,0.08); border-left: 3px solid #f59e0b; border-radius: 0 7px 7px 0; }
+    .sh-row  { background: rgba(139,92,246,0.07); border-left: 3px solid #8b5cf6; border-radius: 0 7px 7px 0; }
+
+    /* ── 스크롤 (항목 영역만) ── */
+    .items-scroll { overflow-y: auto; }
+    .items-scroll::-webkit-scrollbar { width: 2px; }
+    .items-scroll::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.35); border-radius: 2px; }
+
+    .label { font-size: 10px; font-weight: 600; color: rgba(139,92,246,0.8); letter-spacing: 0.03em; text-transform: uppercase; }
+    .val   { font-size: 12px; font-weight: 700; color: #fbbf24; }
+    .badge-ok  { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 6px; padding: 1px 7px; font-size: 10px; }
+    .badge-err { background: rgba(239,68,68,0.15);  border: 1px solid rgba(239,68,68,0.3);  color: #f87171;  border-radius: 6px; padding: 1px 7px; font-size: 10px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { useState, useMemo } = React;
+
+  // ── 유틸 ──────────────────────────────────────
+  const fmt = n => Math.round(n).toLocaleString('ko-KR');
+  let _id = 1; const uid = () => String(_id++);
+
+  function chipState(item, pid) {
+    if (item.payerId === pid) return 'pay';
+    if (item.parts.includes(pid)) return 'part';
+    return 'none';
+  }
+  function cycleChip(item, pid) {
+    const s = chipState(item, pid);
+    if (s === 'none')  return { parts: [...item.parts, pid], payerId: item.payerId };
+    if (s === 'part')  return { parts: item.parts, payerId: pid };
+    // pay → none: remove from parts & clear payer
+    return { parts: item.parts.filter(x => x !== pid), payerId: '' };
+  }
+
+  function calcTransfers(balances) {
+    const cred = [], debt = [];
+    Object.entries(balances).forEach(([id, b]) => {
+      if (b >  0.5) cred.push({ id, b });
+      if (b < -0.5) debt.push({ id, b });
+    });
+    cred.sort((a,z) => z.b - a.b); debt.sort((a,z) => a.b - z.b);
+    const transfers = []; let ci = 0, di = 0;
+    while (ci < cred.length && di < debt.length) {
+      const c = cred[ci], d = debt[di];
+      const amt = Math.min(c.b, -d.b);
+      if (amt >= 1) transfers.push({ from: d.id, to: c.id, amount: amt });
+      c.b -= amt; d.b += amt;
+      if (c.b < 0.5) ci++; if (d.b > -0.5) di++;
+    }
+    return transfers;
+  }
+
+  // ── 항목 행 ───────────────────────────────────
+  function ItemRow({ item, people, onUpdate, onRemove }) {
+    const amt = parseFloat(item.amount) || 0;
+    const cnt = item.parts.length;
+    const perPerson = cnt > 0 && amt > 0 ? fmt(amt / cnt) : null;
+
+    return (
+      <div className="glass-inner p-1.5 space-y-1.5">
+        {/* 이름 + 금액 + 삭제 */}
+        <div style={{display:'grid', gridTemplateColumns:'1fr 90px 22px', gap:'4px', alignItems:'center'}}>
+          <input className="inp inp-sm" value={item.name}
+            onChange={e => onUpdate(item.id, { name: e.target.value })} placeholder="항목명" />
+          <input type="number" inputMode="numeric" className="inp inp-sm" value={item.amount}
+            onChange={e => onUpdate(item.id, { amount: e.target.value })} placeholder="금액(원)" />
+          <button className="btn btn-red" onClick={() => onRemove(item.id)}>✕</button>
+        </div>
+        {/* 인원 칩 + 1인당 */}
+        <div style={{display:'flex', alignItems:'center', gap:'4px', flexWrap:'wrap'}}>
+          {people.map(p => {
+            const s = chipState(item, p.id);
+            return (
+              <button key={p.id} className={`pchip pchip-${s}`}
+                onClick={() => { const patch = cycleChip(item, p.id); onUpdate(item.id, patch); }}>
+                {s === 'pay' ? '👑' : ''}{p.name || `#${people.indexOf(p)+1}`}
+              </button>
+            );
+          })}
+          {perPerson && (
+            <span style={{marginLeft:'auto', fontSize:'10px', color:'rgba(251,191,36,0.8)', flexShrink:0}}>
+              ÷{cnt} = <b style={{color:'#fbbf24'}}>{perPerson}원</b>
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── App ───────────────────────────────────────
+  function App() {
+    const [people, setPeople] = useState([
+      { id: uid(), name: '' }, { id: uid(), name: '' },
+    ]);
+    const [items, setItems] = useState([
+      { id: uid(), name: '', amount: '', parts: [], payerId: '' },
+    ]);
+    const [discType, setDiscType] = useState('amount');
+    const [discVal,  setDiscVal]  = useState('');
+
+    const addPerson = () => { if (people.length < 8) setPeople(p => [...p, { id: uid(), name: '' }]); };
+    const delPerson = id => {
+      setPeople(p => p.filter(x => x.id !== id));
+      setItems(it => it.map(i => ({ ...i, parts: i.parts.filter(x => x !== id), payerId: i.payerId === id ? '' : i.payerId })));
+    };
+    const updPerson = (id, v) => setPeople(p => p.map(x => x.id === id ? { ...x, name: v } : x));
+
+    const addItem  = () => setItems(it => [...it, { id: uid(), name: '', amount: '', parts: [], payerId: '' }]);
+    const delItem  = id => setItems(it => it.filter(i => i.id !== id));
+    const updItem  = (id, patch) => setItems(it => it.map(i => i.id === id ? { ...i, ...patch } : i));
+
+    const reset = () => {
+      setPeople([{ id: uid(), name: '' }, { id: uid(), name: '' }]);
+      setItems([{ id: uid(), name: '', amount: '', parts: [], payerId: '' }]);
+      setDiscVal(''); setDiscType('amount');
+    };
+
+    const nameOf = id => { const p = people.find(x => x.id === id); return p ? (p.name || `#${people.indexOf(p)+1}`) : '?'; };
+
+    // ── 계산 ──
+    const calc = useMemo(() => {
+      const share = {}, paid = {};
+      people.forEach(p => { share[p.id] = 0; paid[p.id] = 0; });
+
+      let total = 0;
+      items.forEach(item => {
+        const amt = parseFloat(item.amount) || 0;
+        if (amt <= 0 || item.parts.length === 0) return;
+        const pp = amt / item.parts.length;
+        item.parts.forEach(pid => { if (share[pid] !== undefined) share[pid] += pp; });
+        if (item.payerId && paid[item.payerId] !== undefined) paid[item.payerId] += amt;
+        total += amt;
+      });
+
+      const dv = parseFloat(discVal) || 0;
+      const discAmt = discType === 'percent' ? total * dv / 100 : dv;
+      const net = Math.max(0, total - discAmt);
+      const ratio = total > 0 ? net / total : 1;
+
+      const balances = {};
+      people.forEach(p => { balances[p.id] = (paid[p.id] - share[p.id]) * ratio; });
+
+      const transfers = calcTransfers({ ...balances });
+      const shareSum = people.reduce((a, p) => a + share[p.id] * ratio, 0);
+      const unassigned = items.filter(i => i.parts.length === 0 && (parseFloat(i.amount)||0) > 0)
+                              .reduce((a, i) => a + (parseFloat(i.amount)||0), 0) * ratio;
+      const isValid = Math.abs(shareSum - (net - unassigned)) < 1;
+
+      const results = people.map(p => ({
+        id: p.id, name: p.name,
+        shareAmt: share[p.id] * ratio,
+        paidAmt:  paid[p.id]  * ratio,
+      }));
+
+      return { total, discAmt, net, transfers, results, shareSum, unassigned, isValid };
+    }, [people, items, discVal, discType]);
+
+    return (
+      <div style={{height:'100%', display:'flex', alignItems:'center', justifyContent:'center', padding:'10px'}}>
+        <div className="glass" style={{
+          width:'100%', maxWidth:'380px', maxHeight:'calc(100vh - 20px)',
+          display:'flex', flexDirection:'column', gap:'0',
+          boxShadow:'0 20px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.12)',
+          overflow:'hidden',
+        }}>
+
+          {/* ── 헤더 ── */}
+          <div style={{padding:'10px 14px 8px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0}}>
+            <div>
+              <div style={{fontSize:'13px', fontWeight:700, color:'#fff', letterSpacing:'0.02em',
+                textShadow:'0 0 16px rgba(139,92,246,0.7)'}}>
+                💸 더치페이 계산기
+              </div>
+              <div style={{fontSize:'9px', color:'rgba(167,139,250,0.6)', marginTop:'1px'}}>
+                칩: 회색=미참여 · 보라=참여 · 금=결제자
+              </div>
+            </div>
+            <button className="btn btn-red" style={{width:'auto', padding:'0 8px', height:'24px', fontSize:'10px'}}
+              onClick={reset}>초기화</button>
+          </div>
+          <div className="div" />
+
+          {/* ── 인원 + 할인 ── */}
+          <div style={{padding:'8px 14px', flexShrink:0, display:'flex', flexDirection:'column', gap:'6px'}}>
+            {/* 인원 행 */}
+            <div style={{display:'flex', alignItems:'center', gap:'4px', flexWrap:'wrap'}}>
+              <span className="label" style={{marginRight:'2px', flexShrink:0}}>👥 인원</span>
+              {people.map((p, i) => (
+                <div key={p.id} style={{display:'flex', alignItems:'center', gap:'2px'}}>
+                  <input className="inp inp-sm" value={p.name} style={{width:'52px'}}
+                    onChange={e => updPerson(p.id, e.target.value)} placeholder={`인원${i+1}`} />
+                  {people.length > 2 &&
+                    <button className="btn btn-red" style={{width:'16px', height:'16px', fontSize:'9px', borderRadius:'4px'}}
+                      onClick={() => delPerson(p.id)}>✕</button>}
+                </div>
+              ))}
+              <button className="btn btn-ghost" style={{height:'22px', padding:'0 7px', fontSize:'10px'}}
+                onClick={addPerson} disabled={people.length >= 8}>+</button>
+            </div>
+            {/* 할인 행 */}
+            <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
+              <span className="label" style={{flexShrink:0}}>🏷️ 할인</span>
+              <input type="number" inputMode="numeric" className="inp inp-sm" value={discVal}
+                style={{flex:1}} onChange={e => setDiscVal(e.target.value)}
+                placeholder={discType === 'percent' ? '할인율' : '할인금액'} />
+              {[['amount','원'],['percent','%']].map(([v,l]) => (
+                <button key={v} className={`btn ${discType===v ? 'btn-purple' : 'btn-ghost'}`}
+                  style={{height:'22px', padding:'0 8px', fontSize:'10px', flexShrink:0}}
+                  onClick={() => { setDiscType(v); setDiscVal(''); }}>{l}</button>
+              ))}
+              {calc.discAmt > 0 &&
+                <span style={{fontSize:'10px', color:'#fbbf24', flexShrink:0}}>-{fmt(calc.discAmt)}원</span>}
+            </div>
+          </div>
+          <div className="div" />
+
+          {/* ── 항목 ── */}
+          <div style={{display:'flex', flexDirection:'column', flexShrink:0, minHeight:0}}>
+            {/* 항목 헤더 */}
+            <div style={{padding:'6px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0}}>
+              <span className="label">🧾 항목 ({items.length})</span>
+              <div style={{display:'flex', alignItems:'center', gap:'6px'}}>
+                {calc.total > 0 &&
+                  <span style={{fontSize:'10px', color:'rgba(255,255,255,0.5)'}}>
+                    합계 <b style={{color:'#fff'}}>{fmt(calc.net)}원</b>
+                  </span>}
+                <button className="btn btn-purple" style={{height:'22px', padding:'0 8px', fontSize:'10px'}}
+                  onClick={addItem}>+ 항목</button>
+              </div>
+            </div>
+            {/* 항목 리스트 (내부 스크롤) */}
+            <div className="items-scroll" style={{
+              padding:'0 14px 8px', display:'flex', flexDirection:'column', gap:'5px',
+              maxHeight:'calc(100vh - 420px)', minHeight:'60px',
+            }}>
+              {items.map(item => (
+                <ItemRow key={item.id} item={item} people={people}
+                  onUpdate={updItem} onRemove={delItem} />
+              ))}
+            </div>
+          </div>
+          <div className="div" />
+
+          {/* ── 결과 ── */}
+          <div style={{padding:'8px 14px 10px', flexShrink:0}}>
+            {/* 검증 + 헤더 */}
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'6px'}}>
+              <span className="label">📊 정산 결과</span>
+              <span className={calc.isValid ? 'badge-ok' : 'badge-err'}>
+                {calc.isValid ? '✓ 정확' : '⚠ 오류'}
+              </span>
+            </div>
+
+            {/* 이체 목록 */}
+            {calc.transfers.length > 0 ? (
+              <div style={{display:'flex', flexDirection:'column', gap:'3px', marginBottom:'6px'}}>
+                {calc.transfers.map((t, i) => (
+                  <div key={i} className="tr-row" style={{
+                    padding:'4px 8px', display:'flex', alignItems:'center', justifyContent:'space-between'
+                  }}>
+                    <span style={{fontSize:'11px', color:'#fff'}}>
+                      <b>{nameOf(t.from)}</b>
+                      <span style={{color:'rgba(251,191,36,0.6)', margin:'0 5px'}}>→</span>
+                      <b>{nameOf(t.to)}</b>
+                    </span>
+                    <span className="val">{fmt(t.amount)}원</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{fontSize:'10px', color:'rgba(255,255,255,0.3)', marginBottom:'6px', textAlign:'center', padding:'4px 0'}}>
+                {calc.net > 0 ? '결제자를 지정하면 이체 정보가 표시됩니다' : '항목을 입력해 주세요'}
+              </div>
+            )}
+
+            {/* 인원별 부담액 */}
+            <div style={{display:'grid', gridTemplateColumns:`repeat(${Math.min(people.length, 4)}, 1fr)`, gap:'4px'}}>
+              {calc.results.map((r, i) => (
+                <div key={r.id} className="sh-row" style={{padding:'4px 6px'}}>
+                  <div style={{fontSize:'9px', color:'rgba(167,139,250,0.8)', marginBottom:'1px', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis'}}>
+                    {r.name || `인원${i+1}`}
+                    {r.paidAmt > 0 && <span style={{color:'#fbbf24', marginLeft:'3px'}}>👑</span>}
+                  </div>
+                  <div className="val" style={{fontSize:'11px'}}>{fmt(r.shareAmt)}원</div>
+                  {r.paidAmt > 0 &&
+                    <div style={{fontSize:'9px', color:'rgba(251,191,36,0.6)'}}>결제 {fmt(r.paidAmt)}원</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* 합계 재확인 */}
+            {calc.net > 0 &&
+              <div style={{marginTop:'5px', textAlign:'center', fontSize:'9px', color:'rgba(255,255,255,0.3)'}}>
+                부담합계 {fmt(calc.shareSum)}원 / 정산금액 {fmt(calc.net - calc.unassigned)}원
+                {calc.unassigned > 0 && <span style={{color:'#f59e0b', marginLeft:'4px'}}>· 미배정 {fmt(calc.unassigned)}원</span>}
+              </div>}
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
