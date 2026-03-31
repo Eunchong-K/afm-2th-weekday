@@ -1,0 +1,13 @@
+{
+  "name": "my-ai-chat",
+  "version": "1.0.0",
+  "description": "AI 심리 상담 채팅 서비스",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^4.21.0"
+  }
+}

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>마음 톡톡 - AI 심리 상담</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans KR"', 'sans-serif'],
+          },
+          colors: {
+            lavender: {
+              50: '#faf5ff',
+              100: '#f3e8ff',
+              200: '#e9d5ff',
+              300: '#d8b4fe',
+              400: '#c084fc',
+              500: '#a855f7',
+            },
+            warmgray: {
+              50: '#fafaf9',
+              100: '#f5f5f4',
+              200: '#e7e5e4',
+            },
+            calm: {
+              blue: '#e0f2fe',
+              pink: '#fce7f3',
+              peach: '#fff7ed',
+              mint: '#ecfdf5',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #f0e6ff 0%, #e0f2fe 30%, #fce7f3 60%, #fff7ed 100%);
+      min-height: 100vh;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse-dot {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    .message-appear {
+      animation: fadeInUp 0.35s ease-out;
+    }
+
+    .typing-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: #a78bfa;
+      animation: pulse-dot 1.4s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    textarea {
+      resize: none;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 5px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #d8b4fe;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body class="font-sans">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ========================================
+    // API Configuration
+    // ========================================
+    const API_BASE_URL = window.location.origin;
+
+    // ========================================
+    // Utility Functions
+    // ========================================
+    function formatTime(date) {
+      return new Intl.DateTimeFormat('ko-KR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }).format(date);
+    }
+
+    // ========================================
+    // Design System Components
+    // ========================================
+
+    function Avatar({ emoji = '🧠', className = '' }) {
+      return (
+        <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-lavender-200 to-lavender-300 flex items-center justify-center text-lg shadow-sm flex-shrink-0 ${className}`}>
+          {emoji}
+        </div>
+      );
+    }
+
+    function TypingIndicator() {
+      return (
+        <div className="flex items-end gap-2.5 message-appear px-4 sm:px-6">
+          <Avatar emoji="💜" />
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-3.5 shadow-sm border border-lavender-100">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">상담사가 답변을 작성하고 있어요</span>
+              <span className="flex gap-1 ml-1">
+                <span className="typing-dot"></span>
+                <span className="typing-dot"></span>
+                <span className="typing-dot"></span>
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function MessageBubble({ message }) {
+      const isUser = message.role === 'user';
+
+      return (
+        <div className={`flex items-end gap-2.5 message-appear px-4 sm:px-6 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+          {!isUser && <Avatar emoji="💜" />}
+          <div className="flex flex-col gap-1 max-w-[75%] sm:max-w-[65%]">
+            <div
+              className={`rounded-2xl px-4 py-3 shadow-sm leading-relaxed text-[15px] whitespace-pre-wrap ${
+                isUser
+                  ? 'bg-gradient-to-r from-lavender-400 to-lavender-500 text-white rounded-br-md'
+                  : 'bg-white/80 backdrop-blur-sm text-gray-700 rounded-bl-md border border-lavender-100'
+              }`}
+            >
+              {message.content}
+            </div>
+            <span className={`text-[11px] text-gray-400 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Header Component
+    // ========================================
+
+    function Header() {
+      return (
+        <header className="bg-white/70 backdrop-blur-md border-b border-lavender-100 px-4 sm:px-6 py-4 flex-shrink-0">
+          <div className="max-w-2xl mx-auto flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-lavender-300 to-purple-400 flex items-center justify-center text-xl shadow-md">
+              💜
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight">
+                마음 톡톡 <span className="text-lavender-400">-</span> <span className="text-lavender-500">AI 심리 상담</span>
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-400 font-light">당신의 이야기에 귀 기울이겠습니다</p>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // Chat Input Component
+    // ========================================
+
+    function ChatInput({ onSend, disabled }) {
+      const [text, setText] = useState('');
+      const textareaRef = useRef(null);
+
+      const adjustHeight = useCallback(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+      }, []);
+
+      useEffect(() => {
+        adjustHeight();
+      }, [text, adjustHeight]);
+
+      const handleSend = useCallback(() => {
+        const trimmed = text.trim();
+        if (!trimmed || disabled) return;
+        onSend(trimmed);
+        setText('');
+        // Reset height after clearing
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+        }, 0);
+      }, [text, disabled, onSend]);
+
+      const handleKeyDown = useCallback((e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
+      }, [handleSend]);
+
+      return (
+        <div className="bg-white/70 backdrop-blur-md border-t border-lavender-100 px-4 sm:px-6 py-3 flex-shrink-0">
+          <div className="max-w-2xl mx-auto flex items-end gap-2.5">
+            <div className="flex-1 bg-white rounded-2xl border border-lavender-200 focus-within:border-lavender-400 focus-within:ring-2 focus-within:ring-lavender-100 transition-all shadow-sm">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="이야기를 들려주세요..."
+                rows={1}
+                disabled={disabled}
+                className="w-full px-4 py-3 bg-transparent outline-none text-[15px] text-gray-700 placeholder-gray-300 leading-relaxed disabled:opacity-50"
+                aria-label="메시지 입력"
+              />
+            </div>
+            <button
+              onClick={handleSend}
+              disabled={disabled || !text.trim()}
+              className="w-11 h-11 rounded-xl bg-gradient-to-r from-lavender-400 to-lavender-500 text-white flex items-center justify-center shadow-md hover:shadow-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:hover:scale-100 disabled:hover:shadow-md flex-shrink-0"
+              aria-label="메시지 보내기"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-center text-[11px] text-gray-300 mt-2 max-w-2xl mx-auto">
+            Enter로 전송 | Shift+Enter로 줄바꿈
+          </p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // App Component
+    // ========================================
+
+    const WELCOME_MESSAGE = {
+      role: 'assistant',
+      content: '안녕하세요, 저는 AI 심리 상담사입니다. 편하게 이야기해 주세요. 어떤 고민이 있으신가요?',
+      timestamp: new Date(),
+    };
+
+    function App() {
+      const [messages, setMessages] = useState([WELCOME_MESSAGE]);
+      const [isLoading, setIsLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const chatEndRef = useRef(null);
+      const chatContainerRef = useRef(null);
+
+      const scrollToBottom = useCallback(() => {
+        // Small delay to let DOM update
+        setTimeout(() => {
+          chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 50);
+      }, []);
+
+      useEffect(() => {
+        scrollToBottom();
+      }, [messages, isLoading, scrollToBottom]);
+
+      const handleSend = useCallback(async (text) => {
+        const userMessage = {
+          role: 'user',
+          content: text,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, userMessage]);
+        setIsLoading(true);
+        setError(null);
+
+        // Build conversation history in OpenAI format
+        const conversationHistory = [...messages, userMessage].map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: conversationHistory }),
+          });
+
+          if (!res.ok) {
+            throw new Error(`서버 오류가 발생했습니다 (${res.status})`);
+          }
+
+          const data = await res.json();
+
+          const assistantMessage = {
+            role: 'assistant',
+            content: data.reply,
+            timestamp: new Date(),
+          };
+
+          setMessages((prev) => [...prev, assistantMessage]);
+        } catch (err) {
+          setError(err.message || '네트워크 오류가 발생했습니다. 다시 시도해 주세요.');
+        } finally {
+          setIsLoading(false);
+        }
+      }, [messages]);
+
+      const dismissError = useCallback(() => setError(null), []);
+
+      return (
+        <div className="h-dvh flex flex-col">
+          <Header />
+
+          {/* Chat area */}
+          <main
+            ref={chatContainerRef}
+            className="flex-1 overflow-y-auto scrollbar-thin py-5 space-y-4"
+          >
+            <div className="max-w-2xl mx-auto space-y-4">
+              {/* Date indicator */}
+              <div className="flex justify-center">
+                <span className="bg-white/60 backdrop-blur-sm text-[11px] text-gray-400 px-4 py-1.5 rounded-full border border-lavender-100">
+                  {new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}
+                </span>
+              </div>
+
+              {messages.map((msg, i) => (
+                <MessageBubble key={i} message={msg} />
+              ))}
+
+              {isLoading && <TypingIndicator />}
+
+              {error && (
+                <div className="px-4 sm:px-6 message-appear">
+                  <div className="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <p className="text-sm text-red-500">{error}</p>
+                    <button
+                      onClick={dismissError}
+                      className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none"
+                      aria-label="오류 닫기"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+          </main>
+
+          <ChatInput onSend={handleSend} disabled={isLoading} />
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
