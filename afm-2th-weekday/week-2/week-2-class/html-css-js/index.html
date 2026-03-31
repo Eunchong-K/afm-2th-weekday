@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apple Style Page</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white text-[#1d1d1f]" style="font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;">
+
+  <!-- 네비게이션 -->
+  <nav class="bg-[rgba(255,255,255,0.85)] backdrop-blur-xl border-b border-[#d2d2d7] px-8 h-12 flex items-center sticky top-0 z-50">
+    <span id="greeting" class="text-[17px] font-medium text-[#1d1d1f] cursor-pointer select-none">안녕하세요</span>
+  </nav>
+
+  <!-- 히어로 섹션 -->
+  <section class="bg-[#000000] text-white text-center py-28 px-6">
+    <p class="text-[19px] font-semibold text-[#f5f5f7] tracking-wide mb-3">New</p>
+    <h1 class="text-[80px] font-bold tracking-[-4px] leading-none mb-6">제목 1</h1>
+    <p class="text-[21px] text-[#a1a1a6] font-light max-w-xl mx-auto mb-10">본문 입니다.</p>
+    <div class="flex justify-center gap-4">
+      <a href="#" class="bg-[#0071e3] hover:bg-[#0077ed] text-white text-[17px] font-medium px-6 py-3 rounded-full transition-colors duration-200">더 알아보기</a>
+      <a href="https://www.naver.com" class="text-[#0071e3] hover:text-[#0077ed] text-[17px] font-medium px-6 py-3 rounded-full border border-[#0071e3] transition-colors duration-200">네이버 &rsaquo;</a>
+    </div>
+  </section>
+
+  <!-- 기능 섹션 -->
+  <section class="bg-[#f5f5f7] py-20 px-6">
+    <div class="max-w-5xl mx-auto">
+
+      <div class="text-center mb-16">
+        <h2 class="text-[48px] font-bold tracking-[-1.5px] text-[#1d1d1f] leading-tight mb-4">제목 2</h2>
+        <p class="text-[19px] text-[#6e6e73] max-w-2xl mx-auto">본문 입니다.</p>
+      </div>
+
+      <!-- 카드 그리드 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-3xl p-10 flex flex-col justify-between min-h-[320px]">
+          <div>
+            <h3 class="text-[28px] font-bold tracking-tight text-[#1d1d1f] mb-3">제목 3</h3>
+            <p class="text-[17px] text-[#6e6e73] leading-relaxed">본문 입니다.</p>
+          </div>
+          <a href="https://www.naver.com" class="text-[#0071e3] hover:opacity-70 text-[17px] font-medium transition-opacity duration-200 mt-6 inline-block">
+            자세히 알아보기 &rsaquo;
+          </a>
+        </div>
+
+        <div class="bg-[#1d1d1f] rounded-3xl p-10 flex flex-col justify-between min-h-[320px]">
+          <div>
+            <h3 class="text-[28px] font-bold tracking-tight text-white mb-3">제목 3</h3>
+            <p class="text-[17px] text-[#a1a1a6] leading-relaxed">본문 입니다.</p>
+          </div>
+          <a href="https://www.naver.com" class="text-[#2997ff] hover:opacity-70 text-[17px] font-medium transition-opacity duration-200 mt-6 inline-block">
+            자세히 알아보기 &rsaquo;
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 하단 CTA -->
+  <section class="bg-white text-center py-20 px-6 border-t border-[#d2d2d7]">
+    <h2 class="text-[40px] font-bold tracking-[-1px] text-[#1d1d1f] mb-4">본문 입니다.</h2>
+    <p class="text-[19px] text-[#6e6e73] mb-8">본문 입니다.</p>
+    <a href="https://www.naver.com" class="inline-block bg-[#0071e3] hover:bg-[#0077ed] text-white text-[17px] font-medium px-8 py-3 rounded-full transition-colors duration-200">
+      네이버 바로가기
+    </a>
+  </section>
+
+  <script src="client.js"></script>
+</body>
+</html>
