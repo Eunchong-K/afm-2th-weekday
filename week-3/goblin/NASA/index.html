@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NASA APOD - Astronomy Picture of the Day</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400;1,8..60,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            space: {
+              900: '#0a0a1a',
+              800: '#0f0f2a',
+              700: '#1a1a3e',
+              600: '#252555',
+            },
+            cream: '#e8d5b7',
+            'cream-light': '#f5ead8',
+            accent: '#4fc3f7',
+            gold: '#d4a843',
+            'gold-light': '#e8c36a',
+          },
+          fontFamily: {
+            playfair: ['Playfair Display', 'serif'],
+            serif: ['Source Serif 4', 'Georgia', 'serif'],
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background-color: #0a0a1a;
+      color: #e8d5b7;
+    }
+
+    .magazine-columns {
+      column-count: 1;
+      column-gap: 2.5rem;
+      text-align: justify;
+      hyphens: auto;
+    }
+    @media (min-width: 768px) {
+      .magazine-columns {
+        column-count: 2;
+      }
+    }
+    @media (min-width: 1280px) {
+      .magazine-columns {
+        column-count: 2;
+      }
+    }
+
+    .magazine-columns p {
+      margin-bottom: 1.25em;
+      text-indent: 1.5em;
+    }
+    .magazine-columns p:first-of-type {
+      text-indent: 0;
+    }
+    .magazine-columns p:first-of-type::first-letter {
+      font-family: 'Playfair Display', serif;
+      font-size: 3.8em;
+      float: left;
+      line-height: 0.75;
+      margin-right: 0.1em;
+      margin-top: 0.08em;
+      color: #d4a843;
+      font-weight: 700;
+    }
+
+    .hero-gradient {
+      background: linear-gradient(
+        to bottom,
+        rgba(10,10,26,0.15) 0%,
+        rgba(10,10,26,0.3) 40%,
+        rgba(10,10,26,0.75) 70%,
+        rgba(10,10,26,0.95) 90%,
+        rgba(10,10,26,1) 100%
+      );
+    }
+
+    .gold-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #d4a843, transparent);
+    }
+
+    .accent-divider {
+      height: 2px;
+      width: 60px;
+      background: #d4a843;
+    }
+
+    .star-bg {
+      background-image:
+        radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.4) 0%, transparent 100%),
+        radial-gradient(1px 1px at 80% 10%, rgba(255,255,255,0.3) 0%, transparent 100%),
+        radial-gradient(1px 1px at 50% 50%, rgba(255,255,255,0.2) 0%, transparent 100%),
+        radial-gradient(1px 1px at 30% 70%, rgba(255,255,255,0.3) 0%, transparent 100%),
+        radial-gradient(1px 1px at 70% 80%, rgba(255,255,255,0.25) 0%, transparent 100%),
+        radial-gradient(1px 1px at 90% 40%, rgba(255,255,255,0.35) 0%, transparent 100%),
+        radial-gradient(1px 1px at 15% 90%, rgba(255,255,255,0.2) 0%, transparent 100%);
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    .btn-glow:hover {
+      box-shadow: 0 0 20px rgba(79,195,247,0.3);
+    }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0a0a1a; }
+    ::-webkit-scrollbar-thumb { background: #1a1a3e; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #252555; }
+  </style>
+</head>
+<body class="min-h-screen star-bg">
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useCallback, useEffect, useRef } = React;
+
+    // ========================================
+    // API Configuration
+    // ========================================
+    const API_KEY = 'rykRMDr5Jgt1K6XhNU2ynTONzwKqlHiG9yjUKHRu';
+    const API_BASE = 'https://api.nasa.gov/planetary/apod';
+    const APOD_START = '1995-06-16';
+
+    function getToday() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function shiftDate(dateStr, days) {
+      const d = new Date(dateStr + 'T12:00:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    }
+
+    // ========================================
+    // Design System Components
+    // ========================================
+
+    function Button({ children, variant = "primary", size = "md", onClick, disabled = false, className = "" }) {
+      const base = "inline-flex items-center justify-center font-sans font-medium transition-all duration-300 rounded cursor-pointer select-none";
+      const variants = {
+        primary: "bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 hover:border-accent/60 btn-glow",
+        secondary: "bg-space-700/60 text-cream border border-cream/20 hover:bg-space-600/60 hover:border-cream/40",
+        ghost: "bg-transparent text-cream/70 hover:text-cream hover:bg-white/5",
+        gold: "bg-gold/20 text-gold border border-gold/40 hover:bg-gold/30 hover:border-gold/60",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-xs tracking-wider",
+        md: "px-5 py-2.5 text-sm tracking-wider",
+        lg: "px-7 py-3 text-base tracking-wider",
+      };
+      const disabledStyle = disabled ? "opacity-40 pointer-events-none" : "";
+
+      return (
+        <button
+          onClick={onClick}
+          disabled={disabled}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${disabledStyle} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Badge({ children, variant = "default", className = "" }) {
+      const variants = {
+        default: "bg-space-700/80 text-cream/80 border border-cream/10",
+        accent: "bg-accent/15 text-accent border border-accent/30",
+        gold: "bg-gold/15 text-gold border border-gold/30",
+      };
+      return (
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium tracking-widest uppercase ${variants[variant]} ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    function IconButton({ children, onClick, label, className = "" }) {
+      return (
+        <button
+          onClick={onClick}
+          aria-label={label}
+          className={`w-10 h-10 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-cream/60 hover:text-cream hover:bg-white/10 hover:border-white/20 transition-all duration-300 ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Divider({ className = "" }) {
+      return <div className={`gold-divider w-full my-8 ${className}`} />;
+    }
+
+    function SectionLabel({ children }) {
+      return (
+        <div className="flex items-center gap-4 mb-6">
+          <div className="accent-divider" />
+          <span className="font-sans text-xs tracking-[0.35em] uppercase text-gold font-semibold">
+            {children}
+          </span>
+          <div className="accent-divider" />
+        </div>
+      );
+    }
+
+    // ========================================
+    // SVG Icon Components
+    // ========================================
+
+    function ChevronLeft() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      );
+    }
+
+    function ChevronRight() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      );
+    }
+
+    function HeartIcon({ filled }) {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+          fill={filled ? "#e8485e" : "none"} stroke={filled ? "#e8485e" : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+        </svg>
+      );
+    }
+
+    function ShareIcon() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+        </svg>
+      );
+    }
+
+    function ExpandIcon() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+          <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+        </svg>
+      );
+    }
+
+    function CalendarIcon() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      );
+    }
+
+    function CameraIcon() {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+      );
+    }
+
+    // ========================================
+    // Layout Components
+    // ========================================
+
+    function Header() {
+      return (
+        <header className="fixed top-0 left-0 right-0 z-50 bg-space-900/80 backdrop-blur-md border-b border-white/5">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center">
+                  <span className="text-accent font-bold text-sm font-sans">N</span>
+                </div>
+                <div>
+                  <h1 className="font-playfair text-cream text-lg font-bold leading-none tracking-wide">
+                    NASA APOD
+                  </h1>
+                  <p className="font-sans text-[10px] tracking-[0.3em] text-cream/40 uppercase">
+                    Astronomy Picture of the Day
+                  </p>
+                </div>
+              </div>
+              <nav className="hidden sm:flex items-center gap-6">
+                <a href="#" className="font-sans text-xs tracking-widest uppercase text-cream/50 hover:text-cream transition-colors">
+                  Archive
+                </a>
+                <a href="#" className="font-sans text-xs tracking-widest uppercase text-cream/50 hover:text-cream transition-colors">
+                  About
+                </a>
+              </nav>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    function Footer() {
+      return (
+        <footer className="border-t border-white/5 py-12 mt-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p className="font-sans text-xs text-cream/30 tracking-widest uppercase mb-2">
+              Powered by NASA Open API
+            </p>
+            <p className="font-sans text-xs text-cream/20">
+              1995년 6월 16일부터 매일 업데이트되는 NASA 공식 APOD 데이터
+            </p>
+          </div>
+        </footer>
+      );
+    }
+
+    // ========================================
+    // DatePicker Modal Component
+    // ========================================
+
+    const MONTH_NAMES = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+    const DAY_NAMES = ['일','월','화','수','목','금','토'];
+
+    function DatePickerModal({ isOpen, onClose, currentDate, onSelect }) {
+      const today = getToday();
+      const [viewYear, setViewYear] = useState(parseInt(currentDate.slice(0, 4)));
+      const [viewMonth, setViewMonth] = useState(parseInt(currentDate.slice(5, 7)) - 1);
+
+      useEffect(() => {
+        if (isOpen) {
+          setViewYear(parseInt(currentDate.slice(0, 4)));
+          setViewMonth(parseInt(currentDate.slice(5, 7)) - 1);
+        }
+      }, [isOpen, currentDate]);
+
+      if (!isOpen) return null;
+
+      const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+      const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const cells = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+      const toDateStr = (day) =>
+        `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+      const isDisabled = (day) => {
+        if (!day) return true;
+        const d = toDateStr(day);
+        return d < APOD_START || d > today;
+      };
+
+      const isSelected = (day) => day && toDateStr(day) === currentDate;
+      const isTodayCell = (day) => day && toDateStr(day) === today;
+
+      const canGoPrev = !(viewYear === 1995 && viewMonth === 5);
+      const canGoNext = !(viewYear === parseInt(today.slice(0, 4)) && viewMonth === parseInt(today.slice(5, 7)) - 1);
+
+      const prevMonth = () => {
+        if (!canGoPrev) return;
+        if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+        else setViewMonth(m => m - 1);
+      };
+      const nextMonth = () => {
+        if (!canGoNext) return;
+        if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+        else setViewMonth(m => m + 1);
+      };
+
+      const handleDayClick = (day) => {
+        if (!day || isDisabled(day)) return;
+        onSelect(toDateStr(day));
+        onClose();
+      };
+
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div
+            className="relative bg-[#0f0f2a] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Calendar Header */}
+            <div className="flex items-center justify-between mb-5">
+              <button
+                onClick={prevMonth}
+                disabled={!canGoPrev}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-cream/60 hover:text-cream hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-all"
+              >
+                <ChevronLeft />
+              </button>
+              <span className="font-playfair text-cream font-semibold text-lg">
+                {viewYear}년 {MONTH_NAMES[viewMonth]}
+              </span>
+              <button
+                onClick={nextMonth}
+                disabled={!canGoNext}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-cream/60 hover:text-cream hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-all"
+              >
+                <ChevronRight />
+              </button>
+            </div>
+
+            {/* Day Names */}
+            <div className="grid grid-cols-7 mb-2">
+              {DAY_NAMES.map((d, i) => (
+                <div key={d} className={`text-center font-sans text-[11px] tracking-widest uppercase py-1 ${i === 0 ? 'text-red-400/60' : 'text-cream/30'}`}>
+                  {d}
+                </div>
+              ))}
+            </div>
+
+            {/* Day Cells */}
+            <div className="grid grid-cols-7 gap-1">
+              {cells.map((day, i) => {
+                const disabled = isDisabled(day);
+                const selected = isSelected(day);
+                const todayCell = isTodayCell(day);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleDayClick(day)}
+                    disabled={disabled}
+                    className={`
+                      h-9 w-full rounded-lg font-sans text-sm transition-all duration-150
+                      ${!day ? 'pointer-events-none' : ''}
+                      ${disabled ? 'text-cream/15 cursor-default' : 'hover:bg-gold/20 hover:text-gold cursor-pointer'}
+                      ${selected ? 'bg-gold text-space-900 font-bold hover:bg-gold-light' : ''}
+                      ${todayCell && !selected ? 'border border-accent/50 text-accent' : ''}
+                      ${!selected && !disabled ? 'text-cream/80' : ''}
+                    `}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quick Actions */}
+            <div className="mt-5 pt-4 border-t border-white/5 flex gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                className="flex-1"
+                onClick={() => { onSelect(today); onClose(); }}
+              >
+                오늘로 이동
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+              >
+                닫기
+              </Button>
+            </div>
+
+            <p className="mt-3 text-center font-sans text-[10px] text-cream/20">
+              APOD 시작일: 1995년 6월 16일
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Page Components
+    // ========================================
+
+    function HeroSection({ data, onOpenCalendar }) {
+      const isVideo = data.media_type === 'video';
+      return (
+        <section className="relative w-full h-[75vh] sm:h-[85vh] overflow-hidden">
+          {isVideo ? (
+            <iframe
+              src={data.url}
+              title={data.title}
+              className="absolute inset-0 w-full h-full"
+              frameBorder="0"
+              allow="autoplay; encrypted-media"
+              allowFullScreen
+            />
+          ) : (
+            <img
+              src={data.url}
+              alt={data.title}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
+          <div className="absolute inset-0 hero-gradient" />
+          <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-10 lg:p-16">
+            <div className="max-w-4xl">
+              <SectionLabel>오늘의 천문학 사진</SectionLabel>
+              <h2 className="font-playfair text-3xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight mb-4 drop-shadow-lg">
+                {data.title}
+              </h2>
+              <div className="flex flex-wrap items-center gap-3 mt-5">
+                <button
+                  onClick={onOpenCalendar}
+                  className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium tracking-widest uppercase bg-gold/15 text-gold border border-gold/30 hover:bg-gold/30 hover:border-gold/60 transition-all duration-200 cursor-pointer group"
+                  title="날짜 선택"
+                >
+                  <span className="mr-1.5 opacity-70 group-hover:opacity-100"><CalendarIcon /></span>
+                  {formatDate(data.date)}
+                  <span className="ml-2 opacity-40 group-hover:opacity-80 text-[10px]">▼</span>
+                </button>
+                {data.copyright && (
+                  <Badge>
+                    <span className="mr-1.5 opacity-70"><CameraIcon /></span>
+                    {data.copyright}
+                  </Badge>
+                )}
+                {isVideo && <Badge variant="accent">VIDEO</Badge>}
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    function ActionBar({ isFavorited, onToggleFavorite }) {
+      return (
+        <div className="flex items-center gap-2">
+          <IconButton onClick={onToggleFavorite} label="Favorite">
+            <HeartIcon filled={isFavorited} />
+          </IconButton>
+          <IconButton onClick={() => {}} label="Share">
+            <ShareIcon />
+          </IconButton>
+        </div>
+      );
+    }
+
+    function MetadataPanel({ data }) {
+      const items = [
+        { label: "Date", value: formatDate(data.date) },
+        { label: "Media Type", value: data.media_type === "image" ? "Image" : "Video" },
+        { label: "Copyright", value: data.copyright || "Public Domain" },
+      ];
+
+      return (
+        <div className="bg-space-700/40 border border-white/5 rounded-lg p-6">
+          <h3 className="font-sans text-xs tracking-[0.3em] uppercase text-gold font-semibold mb-5">
+            Image Metadata
+          </h3>
+          <div className="space-y-4">
+            {items.map((item, i) => (
+              <div key={i}>
+                <dt className="font-sans text-[11px] tracking-widest uppercase text-cream/40 mb-1">{item.label}</dt>
+                <dd className="font-serif text-sm text-cream/90">{item.value}</dd>
+              </div>
+            ))}
+          </div>
+          {data.hdurl && (
+            <div className="mt-6 pt-5 border-t border-white/5">
+              <Button variant="gold" size="sm" className="w-full" onClick={() => window.open(data.hdurl, '_blank')}>
+                <span className="mr-2"><ExpandIcon /></span>
+                HD 이미지 열기
+              </Button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ExplanationSection({ data }) {
+      const paragraphs = data.explanation.split('\n\n').filter(Boolean);
+
+      return (
+        <article className="magazine-columns font-serif text-base sm:text-[17px] leading-[1.85] text-cream/85">
+          {paragraphs.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </article>
+      );
+    }
+
+    function NavigationBar({ currentDate, onPrev, onNext, onOpenCalendar }) {
+      const today = getToday();
+      const hasPrev = currentDate > APOD_START;
+      const hasNext = currentDate < today;
+
+      return (
+        <div className="flex items-center justify-between py-8">
+          <Button variant="secondary" size="md" onClick={onPrev} disabled={!hasPrev}>
+            <span className="mr-2"><ChevronLeft /></span>
+            이전 날
+          </Button>
+          <button
+            onClick={onOpenCalendar}
+            className="flex items-center gap-2 font-sans text-xs tracking-widest uppercase text-cream/40 hover:text-gold border border-transparent hover:border-gold/30 px-4 py-2 rounded-lg transition-all duration-200 group"
+            title="날짜 선택"
+          >
+            <span className="text-cream/30 group-hover:text-gold/60"><CalendarIcon /></span>
+            {formatDate(currentDate)}
+          </button>
+          <Button variant="secondary" size="md" onClick={onNext} disabled={!hasNext}>
+            다음 날
+            <span className="ml-2"><ChevronRight /></span>
+          </Button>
+        </div>
+      );
+    }
+
+    function LoadingState() {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+          <div className="w-16 h-16 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />
+          <p className="font-sans text-sm tracking-widest uppercase text-cream/40">
+            NASA APOD 불러오는 중...
+          </p>
+        </div>
+      );
+    }
+
+    function ErrorState({ message, onRetry }) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center px-4">
+          <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+            <span className="text-red-400 text-2xl">!</span>
+          </div>
+          <div>
+            <h3 className="font-playfair text-xl text-cream mb-2">데이터를 불러올 수 없습니다</h3>
+            <p className="font-sans text-sm text-cream/40 max-w-md">{message}</p>
+          </div>
+          <Button variant="primary" onClick={onRetry}>다시 시도</Button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Helper Functions
+    // ========================================
+
+    function formatDate(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    }
+
+    // ========================================
+    // App Component
+    // ========================================
+
+    function App() {
+      const [currentDate, setCurrentDate] = useState(getToday());
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [isFavorited, setIsFavorited] = useState(false);
+      const [showCalendar, setShowCalendar] = useState(false);
+
+      const fetchAPOD = useCallback((date) => {
+        setLoading(true);
+        setError(null);
+        setData(null);
+        fetch(`${API_BASE}?api_key=${API_KEY}&date=${date}`)
+          .then(res => {
+            if (!res.ok) throw new Error(`API 오류: ${res.status} ${res.statusText}`);
+            return res.json();
+          })
+          .then(json => {
+            setData(json);
+            setLoading(false);
+          })
+          .catch(err => {
+            setError(err.message);
+            setLoading(false);
+          });
+      }, []);
+
+      useEffect(() => {
+        fetchAPOD(currentDate);
+        setIsFavorited(false);
+      }, [currentDate, fetchAPOD]);
+
+      const handlePrev = useCallback(() => {
+        setCurrentDate(d => shiftDate(d, -1));
+      }, []);
+
+      const handleNext = useCallback(() => {
+        setCurrentDate(d => shiftDate(d, 1));
+      }, []);
+
+      const handleToggleFavorite = useCallback(() => {
+        setIsFavorited(f => !f);
+      }, []);
+
+      const handleDateSelect = useCallback((date) => {
+        setCurrentDate(date);
+      }, []);
+
+      return (
+        <div className="min-h-screen bg-space-900">
+          <Header />
+
+          <DatePickerModal
+            isOpen={showCalendar}
+            onClose={() => setShowCalendar(false)}
+            currentDate={currentDate}
+            onSelect={handleDateSelect}
+          />
+
+          <main className="pt-16">
+            {loading && <LoadingState />}
+            {error && <ErrorState message={error} onRetry={() => fetchAPOD(currentDate)} />}
+            {!loading && !error && data && (
+              <>
+                <HeroSection data={data} onOpenCalendar={() => setShowCalendar(true)} />
+
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <Divider />
+
+                  <div className="flex items-center justify-between mb-10">
+                    <div>
+                      <p className="font-sans text-xs tracking-[0.25em] uppercase text-accent mb-1">
+                        NASA APOD &mdash; {formatDate(data.date)}
+                      </p>
+                      <h3 className="font-playfair text-2xl sm:text-3xl font-bold text-cream">
+                        {data.title}
+                      </h3>
+                    </div>
+                    <ActionBar
+                      isFavorited={isFavorited}
+                      onToggleFavorite={handleToggleFavorite}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-10 lg:gap-14">
+                    <ExplanationSection data={data} />
+                    <aside className="order-first lg:order-last">
+                      <div className="lg:sticky lg:top-24">
+                        <MetadataPanel data={data} />
+                      </div>
+                    </aside>
+                  </div>
+
+                  <Divider />
+
+                  <NavigationBar
+                    currentDate={currentDate}
+                    onPrev={handlePrev}
+                    onNext={handleNext}
+                    onOpenCalendar={() => setShowCalendar(true)}
+                  />
+                </div>
+              </>
+            )}
+          </main>
+
+          <Footer />
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
