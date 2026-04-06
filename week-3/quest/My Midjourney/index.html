@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>마이 미드저니 — AI 이미지 생성</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { nunito: ['Nunito', 'sans-serif'] },
+          colors: {
+            soft: {
+              bg:    '#f4f0ff',
+              card:  '#ffffff',
+              purple:'#a78bfa',
+              indigo:'#818cf8',
+              pink:  '#f0abfc',
+              blue:  '#93c5fd',
+              green: '#86efac',
+              yellow:'#fde68a',
+            }
+          },
+          borderRadius: { '2xl': '1rem', '3xl': '1.5rem', '4xl': '2rem' }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { font-family: 'Nunito', sans-serif; }
+
+    body {
+      background: linear-gradient(135deg, #f4f0ff 0%, #eef2ff 50%, #fdf4ff 100%);
+      min-height: 100vh;
+    }
+
+    /* 배경 장식 블롭 */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.25;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .blob-1 { width: 500px; height: 500px; background: #c4b5fd; top: -100px; left: -150px; }
+    .blob-2 { width: 400px; height: 400px; background: #a5f3fc; bottom: 100px; right: -100px; }
+    .blob-3 { width: 300px; height: 300px; background: #fbcfe8; top: 40%; left: 30%; }
+
+    /* 그라디언트 텍스트 */
+    .gradient-text {
+      background: linear-gradient(135deg, #7c3aed, #6366f1, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* 버튼 */
+    .btn-primary {
+      background: linear-gradient(135deg, #7c3aed, #6366f1);
+      border-radius: 999px;
+      color: white;
+      font-weight: 800;
+      transition: all 0.2s ease;
+      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(124, 58, 237, 0.45);
+    }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: white;
+      border-radius: 999px;
+      color: #7c3aed;
+      font-weight: 700;
+      border: 2px solid #e9d5ff;
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover { background: #faf5ff; border-color: #a78bfa; }
+
+    /* 카드 */
+    .soft-card {
+      background: white;
+      border-radius: 1.75rem;
+      box-shadow: 0 4px 24px rgba(139, 92, 246, 0.08), 0 1px 4px rgba(0,0,0,0.04);
+      border: 2px solid transparent;
+      transition: all 0.2s ease;
+    }
+    .soft-card:hover { box-shadow: 0 8px 32px rgba(139, 92, 246, 0.14); }
+
+    /* 스타일 카드 */
+    .style-card {
+      background: #faf5ff;
+      border-radius: 1.25rem;
+      border: 2.5px solid #ede9fe;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .style-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(139, 92, 246, 0.15); }
+    .style-card.selected {
+      background: linear-gradient(135deg, #ede9fe, #eef2ff);
+      border-color: #a78bfa;
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.22);
+      transform: translateY(-2px);
+    }
+
+    /* 인풋 */
+    .soft-input {
+      background: #faf5ff;
+      border: 2.5px solid #ede9fe;
+      border-radius: 1.25rem;
+      color: #4c1d95;
+      font-size: 0.95rem;
+      transition: all 0.2s ease;
+      width: 100%;
+    }
+    .soft-input:focus {
+      outline: none;
+      border-color: #a78bfa;
+      background: white;
+      box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.12);
+    }
+    .soft-input::placeholder { color: #c4b5fd; }
+
+    /* 셀렉트 */
+    select.soft-input {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%23a78bfa' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 16px center;
+    }
+
+    /* 섹션 제목 */
+    .section-label {
+      font-size: 0.85rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #a78bfa;
+      margin-bottom: 0.75rem;
+    }
+
+    /* 스켈레톤 */
+    @keyframes shimmer {
+      0% { background-position: -600px 0; }
+      100% { background-position: 600px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg, #ede9fe 25%, #ddd6fe 50%, #ede9fe 75%);
+      background-size: 600px 100%;
+      animation: shimmer 1.6s infinite;
+      border-radius: 1.5rem;
+    }
+
+    /* 애니메이션 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in-up { animation: fadeInUp 0.45s cubic-bezier(.22,.68,0,1.2); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.9s linear infinite; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-6px); }
+    }
+    .float { animation: float 3s ease-in-out infinite; }
+
+    /* 생성 중 반짝임 */
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.4); }
+      70%  { box-shadow: 0 0 0 16px rgba(167, 139, 250, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(167, 139, 250, 0); }
+    }
+    .generating-pulse { animation: pulse-ring 1.8s ease-out infinite; }
+
+    /* 갤러리 썸네일 */
+    .gallery-thumb {
+      border-radius: 1.1rem;
+      overflow: hidden;
+      border: 2.5px solid #ede9fe;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .gallery-thumb:hover { border-color: #a78bfa; transform: scale(1.03); box-shadow: 0 8px 24px rgba(139,92,246,0.18); }
+
+    /* 모달 */
+    .modal-overlay {
+      background: rgba(76, 29, 149, 0.4);
+      backdrop-filter: blur(8px);
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* 스크롤바 */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f4f0ff; }
+    ::-webkit-scrollbar-thumb { background: #ddd6fe; border-radius: 99px; }
+  </style>
+</head>
+<body>
+  <!-- 배경 블롭 -->
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  <div id="root" style="position:relative;z-index:1;"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    const API_BASE_URL = window.location.origin;
+
+    const STYLES = [
+      { id: 'photorealistic', emoji: '🌅', name: '사진풍',    prompt: 'photorealistic, 8k, ultra detailed, sharp focus, hyperrealistic' },
+      { id: 'oil-painting',   emoji: '🎨', name: '유화',      prompt: 'oil painting, traditional art, masterpiece, thick brushstrokes, textured canvas' },
+      { id: 'anime',          emoji: '🌸', name: '애니',      prompt: 'anime style, manga, vibrant colors, Japanese animation, clean lineart' },
+      { id: 'watercolor',     emoji: '💧', name: '수채화',    prompt: 'watercolor painting, soft edges, pastel colors, paper texture, flowing' },
+      { id: 'sketch',         emoji: '✏️', name: '스케치',    prompt: 'pencil sketch, hand drawn, detailed linework, crosshatching, graphite' },
+      { id: 'cyberpunk',      emoji: '🤖', name: '사이버펑크', prompt: 'cyberpunk, neon lights, futuristic, dark rainy city, synthwave aesthetic' },
+      { id: 'fantasy',        emoji: '🧙', name: '판타지',    prompt: 'fantasy art, magical, ethereal, epic landscape, mystical lighting' },
+      { id: 'vintage',        emoji: '📸', name: '빈티지',    prompt: 'vintage photo, film grain, retro aesthetic, faded colors, 1970s style' },
+      { id: 'surrealism',     emoji: '🌌', name: '초현실',    prompt: 'surrealist art, dreamlike, impossible scene, Salvador Dali inspired' },
+    ];
+
+    const MODEL_NAME = 'FLUX.1-schnell (Hugging Face)';
+
+    // ── Spinner ──────────────────────────────────────────
+    function Spinner({ size = 20 }) {
+      return (
+        <svg className="spinner" width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" opacity="0.25" />
+          <path d="M12 2a10 10 0 019.75 7.75" stroke="white" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    // ── Header ────────────────────────────────────────────
+    function Header() {
+      return (
+        <header className="text-center pt-12 pb-8">
+          <div className="float inline-block mb-3 text-5xl">✨</div>
+          <h1 className="text-5xl font-black gradient-text mb-2 tracking-tight">
+            마이 미드저니
+          </h1>
+          <p className="text-purple-300 text-base font-semibold">
+            AI로 상상을 현실로 — 원하는 이미지를 바로 생성하세요
+          </p>
+        </header>
+      );
+    }
+
+    // ── Style Selector ────────────────────────────────────
+    function StyleSelector({ selected, onSelect }) {
+      return (
+        <div className="soft-card p-6 mb-5">
+          <p className="section-label">🎭 이미지 스타일</p>
+          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2">
+            {STYLES.map(s => (
+              <div
+                key={s.id}
+                onClick={() => onSelect(s.id)}
+                className={`style-card p-3 text-center ${selected === s.id ? 'selected' : ''}`}
+              >
+                <div className="text-2xl mb-1">{s.emoji}</div>
+                <div className="text-xs font-bold text-purple-700">{s.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+
+    // ── Prompt Input ──────────────────────────────────────
+    function PromptInput({ value, onChange, onGenerate, loading }) {
+      return (
+        <div className="soft-card p-6 mb-5">
+          <p className="section-label">✍️ 프롬프트 입력</p>
+          <textarea
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            placeholder="이미지를 설명해 주세요... (예: 안개 낀 산 위를 나는 용, 석양 배경)"
+            rows={4}
+            maxLength={1000}
+            className="soft-input px-4 py-3 resize-none mb-2"
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onGenerate(); }}
+          />
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-xs text-purple-300 font-semibold">{value.length}/1000</span>
+            <span className="text-xs text-purple-300">Ctrl+Enter로 바로 생성</span>
+          </div>
+          <button
+            onClick={onGenerate}
+            disabled={loading || !value.trim()}
+            className="btn-primary w-full py-4 text-lg flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <><Spinner size={22} /> 이미지 생성 중...</>
+            ) : (
+              <><span>✨</span> 이미지 생성하기</>
+            )}
+          </button>
+        </div>
+      );
+    }
+
+    // ── Image Result ──────────────────────────────────────
+    function ImageResult({ result, loading, error }) {
+      const handleDownload = useCallback(async () => {
+        if (!result?.url) return;
+        try {
+          const resp = await fetch(result.url);
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `my-midjourney-${Date.now()}.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch {
+          window.open(result.url, '_blank');
+        }
+      }, [result]);
+
+      if (!loading && !result && !error) return null;
+
+      return (
+        <div className="soft-card p-6 mb-5 fade-in-up">
+          <p className="section-label">🖼️ 생성 결과</p>
+
+          {loading && (
+            <div className="generating-pulse rounded-3xl overflow-hidden">
+              <div className="skeleton w-full" style={{ height: '320px' }} />
+              <p className="text-center text-purple-400 font-bold mt-4 text-sm">
+                🎨 마스터피스를 만드는 중이에요...
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 border-2 border-red-200 rounded-3xl p-5">
+              <p className="text-red-500 font-bold mb-1">😢 생성에 실패했어요</p>
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {result && !loading && (
+            <div>
+              <img
+                src={result.url}
+                alt={result.prompt}
+                className="w-full rounded-3xl shadow-lg mb-4"
+                style={{ border: '2.5px solid #ede9fe' }}
+                loading="lazy"
+              />
+              <div className="bg-purple-50 rounded-2xl p-4 mb-4">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">사용된 프롬프트</p>
+                <p className="text-purple-700 text-sm leading-relaxed">{result.prompt}</p>
+                <p className="text-purple-300 text-xs mt-2 font-semibold">
+                  모델: {MODEL_NAME}
+                </p>
+              </div>
+              <button onClick={handleDownload} className="btn-secondary px-6 py-2.5 text-sm">
+                💾 다운로드
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Gallery ───────────────────────────────────────────
+    function Gallery({ images, onSelect }) {
+      if (images.length === 0) return null;
+      return (
+        <div className="soft-card p-6 mb-10">
+          <p className="section-label">🗂️ 생성 기록 ({images.length})</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {images.map((img, i) => (
+              <div key={img.url + i} className="gallery-thumb" onClick={() => onSelect(img)}>
+                <img src={img.url} alt={img.prompt} className="w-full aspect-[4/3] object-cover" loading="lazy" />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Modal ─────────────────────────────────────────────
+    function Modal({ isOpen, onClose, children }) {
+      if (!isOpen) return null;
+      return (
+        <div
+          className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={onClose}
+        >
+          <div
+            className="max-w-4xl max-h-[90vh] overflow-auto rounded-3xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {children}
+          </div>
+          <button
+            onClick={onClose}
+            className="absolute top-5 right-5 w-10 h-10 bg-white rounded-full text-purple-500 font-black text-xl
+              flex items-center justify-center shadow-lg hover:bg-purple-50 transition-all"
+          >
+            ×
+          </button>
+        </div>
+      );
+    }
+
+    // ── App ───────────────────────────────────────────────
+    function App() {
+      const [prompt, setPrompt]               = useState('');
+      const [selectedStyle, setSelectedStyle] = useState('photorealistic');
+      const [loading, setLoading]             = useState(false);
+      const [result, setResult]               = useState(null);
+      const [error, setError]                 = useState(null);
+      const [gallery, setGallery]             = useState([]);
+      const [modalImage, setModalImage]       = useState(null);
+
+      const handleGenerate = useCallback(async () => {
+        if (!prompt.trim() || loading) return;
+        setLoading(true);
+        setError(null);
+        setResult(null);
+
+        const style = STYLES.find(s => s.id === selectedStyle);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: prompt.trim(),
+              style: selectedStyle,
+              stylePrompt: style?.prompt || '',
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '생성에 실패했어요');
+
+          if (data.images?.length > 0) {
+            const newResult = { url: data.images[0].url, prompt: data.prompt, model: data.model, timestamp: Date.now() };
+            setResult(newResult);
+            setGallery(prev => [newResult, ...prev].slice(0, 6));
+          } else {
+            throw new Error('API에서 이미지를 반환하지 않았어요');
+          }
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      }, [prompt, selectedStyle, loading]);
+
+      return (
+        <div className="min-h-screen">
+          <div className="max-w-3xl mx-auto px-4 pb-16">
+            <Header />
+            <StyleSelector selected={selectedStyle} onSelect={setSelectedStyle} />
+            <PromptInput value={prompt} onChange={setPrompt} onGenerate={handleGenerate} loading={loading} />
+            <ImageResult result={result} loading={loading} error={error} />
+            <Gallery images={gallery} onSelect={setModalImage} />
+          </div>
+
+          <Modal isOpen={!!modalImage} onClose={() => setModalImage(null)}>
+            {modalImage && (
+              <img src={modalImage.url} alt={modalImage.prompt} className="max-w-full rounded-3xl" />
+            )}
+          </Modal>
+
+          <footer className="relative z-10 text-center py-6 text-purple-300 text-sm font-semibold">
+            ✨ fal.ai로 구동 · React + Tailwind CSS로 제작
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

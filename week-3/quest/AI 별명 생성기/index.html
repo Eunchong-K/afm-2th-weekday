@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 별명 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #c084fc 0%, #818cf8 50%, #60a5fa 100%);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 24px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    @keyframes popIn {
+      from { transform: scale(0.85) translateY(10px); opacity: 0; }
+      to   { transform: scale(1) translateY(0);        opacity: 1; }
+    }
+    @keyframes slideDown {
+      from { transform: translateX(-50%) translateY(-60px); opacity: 0; }
+      to   { transform: translateX(-50%) translateY(0);     opacity: 1; }
+    }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .card-anim { animation: popIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both; }
+    .toast-in  { animation: slideDown 0.35s ease-out forwards; }
+    .toast-out { animation: fadeOut 0.3s ease-in forwards; }
+    input:focus { outline: none; }
+    ::-webkit-scrollbar { width: 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback, useEffect } = React;
+
+    /* ── 카드 테마 ── */
+    const THEMES = [
+      { from:"#fce7f3", to:"#fbcfe8", border:"#f9a8d4", emoji:"🌸", selFrom:"#f9a8d4", selBorder:"#ec4899" },
+      { from:"#ede9fe", to:"#ddd6fe", border:"#c4b5fd", emoji:"⭐", selFrom:"#c4b5fd", selBorder:"#7c3aed" },
+      { from:"#dbeafe", to:"#bfdbfe", border:"#93c5fd", emoji:"🌊", selFrom:"#93c5fd", selBorder:"#2563eb" },
+      { from:"#d1fae5", to:"#a7f3d0", border:"#6ee7b7", emoji:"🌿", selFrom:"#6ee7b7", selBorder:"#059669" },
+      { from:"#fef3c7", to:"#fde68a", border:"#fcd34d", emoji:"✨", selFrom:"#fcd34d", selBorder:"#d97706" },
+    ];
+
+    /* ── 예시 칩 데이터 ── */
+    const CHIPS = {
+      ko: {
+        personality: ["활발한", "조용한", "유머러스한", "차분한", "열정적인", "귀여운", "반전있는", "다정한"],
+        hobby:       ["독서", "게임", "요리", "운동", "음악", "여행", "영화", "코딩", "그림", "등산"],
+        style:       ["귀여운", "힙한", "레트로", "웃긴", "멋진", "감성적인", "신비로운", "엉뚱한"],
+      },
+      en: {
+        personality: ["Cheerful", "Quiet", "Funny", "Calm", "Passionate", "Cute", "Unpredictable", "Warm"],
+        hobby:       ["Reading", "Gaming", "Cooking", "Working out", "Music", "Travel", "Movies", "Coding", "Art", "Hiking"],
+        style:       ["Cute", "Hip", "Retro", "Funny", "Cool", "Emotional", "Mysterious", "Quirky"],
+      },
+    };
+
+    /* ── Toast ── */
+    function Toast({ visible }) {
+      const [phase, setPhase] = useState("hidden");
+      useEffect(() => {
+        if (visible) {
+          setPhase("in");
+          const t = setTimeout(() => setPhase("out"), 1700);
+          return () => clearTimeout(t);
+        } else { setPhase("hidden"); }
+      }, [visible]);
+      if (phase === "hidden") return null;
+      return (
+        <div className={phase === "in" ? "toast-in" : "toast-out"} style={{
+          position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", zIndex:9999,
+          background:"#7c3aed", color:"#fff", padding:"10px 22px", borderRadius:999,
+          fontSize:13, fontWeight:700, boxShadow:"0 4px 20px rgba(124,58,237,0.35)", whiteSpace:"nowrap",
+        }}>
+          ✓ 복사됐어요!
+        </div>
+      );
+    }
+
+    /* ── Language Toggle ── */
+    function LangToggle({ lang, onChange }) {
+      return (
+        <div style={{ display:"flex", background:"rgba(255,255,255,0.25)", borderRadius:999, padding:3, gap:2 }}>
+          {["ko","en"].map(l => (
+            <button key={l} onClick={() => onChange(l)} style={{
+              padding:"5px 16px", borderRadius:999, border:"none", fontWeight:700, fontSize:12, cursor:"pointer",
+              background: lang===l ? "#fff" : "transparent",
+              color: lang===l ? "#7c3aed" : "rgba(255,255,255,0.85)",
+              boxShadow: lang===l ? "0 2px 8px rgba(0,0,0,0.1)" : "none",
+              transition:"all 0.2s",
+            }}>
+              {l === "ko" ? "🇰🇷 국문" : "🇺🇸 영문"}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    /* ── Chip Selector ── */
+    function ChipSelector({ chips, selected, onToggle }) {
+      return (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:6, marginBottom:4 }}>
+          {chips.map(chip => {
+            const active = selected.has(chip);
+            return (
+              <button key={chip} onClick={() => onToggle(chip)} style={{
+                padding:"4px 11px", borderRadius:999, border:"none", cursor:"pointer", fontSize:12, fontWeight:600,
+                background: active ? "#7c3aed" : "rgba(124,58,237,0.08)",
+                color: active ? "#fff" : "#6d28d9",
+                boxShadow: active ? "0 2px 8px rgba(124,58,237,0.25)" : "none",
+                transform: active ? "scale(1.05)" : "scale(1)",
+                transition:"all 0.15s",
+              }}>
+                {active ? "✓ " : ""}{chip}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    /* ── Field + Chips ── */
+    function FieldWithChips({ label, value, onChange, placeholder, chips, selectedChips, onChipToggle }) {
+      return (
+        <div style={{ marginBottom:14 }}>
+          <label style={{ display:"block", fontSize:12, fontWeight:700, color:"#6b7280", marginBottom:5 }}>
+            {label}
+          </label>
+          <input
+            type="text" value={value} onChange={onChange} placeholder={placeholder}
+            style={{
+              width:"100%", padding:"10px 14px", borderRadius:14,
+              border:"1.5px solid #e5e7eb", background:"rgba(255,255,255,0.9)",
+              fontSize:14, color:"#1f2937", transition:"border-color 0.2s, box-shadow 0.2s",
+            }}
+            onFocus={e => { e.target.style.borderColor="#a78bfa"; e.target.style.boxShadow="0 0 0 3px rgba(167,139,250,0.2)"; }}
+            onBlur={e => { e.target.style.borderColor="#e5e7eb"; e.target.style.boxShadow="none"; }}
+          />
+          <ChipSelector chips={chips} selected={selectedChips} onToggle={onChipToggle} />
+        </div>
+      );
+    }
+
+    /* ── Nickname Card ── */
+    function NicknameCard({ nickname, index, isSelected, onToggle, onCopy, lang }) {
+      const theme = THEMES[index % THEMES.length];
+      return (
+        <div onClick={onToggle} className="card-anim" style={{
+          animationDelay:`${index * 0.07}s`,
+          borderRadius:24, border:`2px solid ${isSelected ? theme.selBorder : theme.border}`,
+          background: isSelected
+            ? `linear-gradient(135deg, ${theme.selFrom}, ${theme.from})`
+            : `linear-gradient(135deg, ${theme.from}, ${theme.to})`,
+          padding:"14px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer",
+          boxShadow: isSelected ? `0 4px 20px ${theme.selBorder}55` : "0 2px 10px rgba(0,0,0,0.06)",
+          transform: isSelected ? "scale(1.02)" : "scale(1)",
+          transition:"transform 0.2s, box-shadow 0.2s, border-color 0.2s, background 0.2s",
+        }}>
+          <div style={{
+            width:50, height:50, borderRadius:16, flexShrink:0,
+            background:"rgba(255,255,255,0.7)", display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:24, boxShadow:"0 2px 8px rgba(0,0,0,0.08)",
+          }}>
+            {theme.emoji}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:15, fontWeight:800, color: isSelected ? "#1e1b4b" : "#374151", lineHeight:1.3 }}>
+              {nickname}
+            </div>
+            <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>
+              {isSelected
+                ? (lang==="ko" ? "✓ 선택됨" : "✓ Selected")
+                : (lang==="ko" ? "탭하여 선택" : "Tap to select")}
+            </div>
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); onCopy(); }}
+            style={{
+              flexShrink:0, padding:"6px 12px", borderRadius:12, border:"none",
+              background:"rgba(255,255,255,0.8)", cursor:"pointer",
+              fontSize:11, fontWeight:700, color:"#6b7280",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.08)", transition:"background 0.15s, color 0.15s",
+            }}
+            onMouseOver={e => { e.currentTarget.style.background="#fff"; e.currentTarget.style.color="#7c3aed"; }}
+            onMouseOut={e => { e.currentTarget.style.background="rgba(255,255,255,0.8)"; e.currentTarget.style.color="#6b7280"; }}
+          >
+            {lang==="ko" ? "복사" : "Copy"}
+          </button>
+        </div>
+      );
+    }
+
+    /* ── App ── */
+    function App() {
+      const [lang, setLang]               = useState("ko");
+      const [name, setName]               = useState("");
+      const [personality, setPersonality] = useState("");
+      const [hobby, setHobby]             = useState("");
+      const [style, setStyle]             = useState("");
+
+      // 칩 선택 상태 (Set)
+      const [selPersonality, setSelPersonality] = useState(new Set());
+      const [selHobby, setSelHobby]             = useState(new Set());
+      const [selStyle, setSelStyle]             = useState(new Set());
+
+      const [nicknames, setNicknames] = useState([]);
+      const [selected, setSelected]   = useState(new Set());
+      const [loading, setLoading]     = useState(false);
+      const [error, setError]         = useState("");
+      const [generated, setGenerated] = useState(false);
+      const [toastVisible, setToastVisible] = useState(false);
+
+      const txt = {
+        ko: {
+          subtitle:"나만의 특별한 별명을 AI가 만들어줘요",
+          nameLabel:"이름", namePH:"예: 철수",
+          personalityLabel:"성격", personalityPH:"직접 입력하거나 아래에서 선택",
+          hobbyLabel:"취미", hobbyPH:"직접 입력하거나 아래에서 선택",
+          styleLabel:"별명 스타일", stylePH:"직접 입력하거나 아래에서 선택",
+          btn:"⚡ 별명 생성하기", btnLoading:"AI가 고민 중...",
+          resultTitle:"생성된 별명", selectedTitle:"내가 선택한 별명",
+          errName:"이름을 입력해주세요.", errServer:"오류가 발생했어요. 다시 시도해주세요.",
+        },
+        en: {
+          subtitle:"Let AI create your unique nickname",
+          nameLabel:"Name", namePH:"e.g. John",
+          personalityLabel:"Personality", personalityPH:"Type or choose below",
+          hobbyLabel:"Hobbies", hobbyPH:"Type or choose below",
+          styleLabel:"Nickname Style", stylePH:"Type or choose below",
+          btn:"⚡ Generate Nicknames", btnLoading:"AI is thinking...",
+          resultTitle:"Generated Nicknames", selectedTitle:"My Selected Nicknames",
+          errName:"Please enter your name.", errServer:"An error occurred. Please try again.",
+        },
+      }[lang];
+
+      // 칩 토글 → 텍스트 필드에도 반영
+      const makeChipToggler = (selSet, setSelSet, setValue) => (chip) => {
+        setSelSet(prev => {
+          const next = new Set(prev);
+          next.has(chip) ? next.delete(chip) : next.add(chip);
+          setValue([...next].join(", "));
+          return next;
+        });
+      };
+
+      const togglePersonalityChip = useCallback(makeChipToggler(selPersonality, setSelPersonality, setPersonality), [selPersonality]);
+      const toggleHobbyChip       = useCallback(makeChipToggler(selHobby, setSelHobby, setHobby), [selHobby]);
+      const toggleStyleChip       = useCallback(makeChipToggler(selStyle, setSelStyle, setStyle), [selStyle]);
+
+      const handleLangChange = (l) => {
+        setLang(l);
+        setGenerated(false); setNicknames([]);
+        setSelPersonality(new Set()); setSelHobby(new Set()); setSelStyle(new Set());
+        setPersonality(""); setHobby(""); setStyle("");
+      };
+
+      const handleGenerate = useCallback(async () => {
+        if (!name.trim()) { setError(txt.errName); return; }
+        setError(""); setLoading(true); setGenerated(false); setSelected(new Set());
+        try {
+          const res = await fetch("http://localhost:3000/api/generate-nicknames", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ name, personality, hobby, style, lang }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || txt.errServer);
+          setNicknames(data.nicknames);
+          setGenerated(true);
+        } catch (e) {
+          setError(e.message || txt.errServer);
+        } finally {
+          setLoading(false);
+        }
+      }, [name, personality, hobby, style, lang, txt]);
+
+      const toggleSelect = useCallback((n) => {
+        setSelected(prev => { const next = new Set(prev); next.has(n) ? next.delete(n) : next.add(n); return next; });
+      }, []);
+
+      const copyToClipboard = useCallback((text) => {
+        navigator.clipboard.writeText(text).then(() => {
+          setToastVisible(true);
+          setTimeout(() => setToastVisible(false), 2200);
+        });
+      }, []);
+
+      const selectedList = nicknames.filter(n => selected.has(n));
+      const chips = CHIPS[lang];
+
+      return (
+        <div style={{
+          width:375, minHeight:812,
+          background:"rgba(255,255,255,0.18)", backdropFilter:"blur(12px)",
+          borderRadius:36, boxShadow:"0 20px 60px rgba(79,70,229,0.25)",
+          overflow:"hidden", display:"flex", flexDirection:"column",
+        }}>
+          <Toast visible={toastVisible} />
+
+          {/* Header */}
+          <div style={{ background:"linear-gradient(135deg, #7c3aed, #4f46e5)", padding:"40px 24px 28px", textAlign:"center" }}>
+            <div style={{ fontSize:36, marginBottom:6 }}>🏷️</div>
+            <h1 style={{ margin:0, fontSize:22, fontWeight:900, color:"#fff", letterSpacing:"-0.5px" }}>
+              AI 별명 생성기
+            </h1>
+            <p style={{ margin:"6px 0 16px", fontSize:13, color:"rgba(255,255,255,0.8)" }}>
+              {txt.subtitle}
+            </p>
+            <LangToggle lang={lang} onChange={handleLangChange} />
+          </div>
+
+          {/* Content */}
+          <div style={{ flex:1, padding:"20px 18px 32px", overflowY:"auto" }}>
+
+            {/* Form */}
+            <div style={{
+              background:"rgba(255,255,255,0.85)", borderRadius:24, padding:"20px 18px", marginBottom:16,
+              boxShadow:"0 4px 20px rgba(0,0,0,0.06)",
+            }}>
+              {/* 이름 (칩 없음) */}
+              <div style={{ marginBottom:14 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:700, color:"#6b7280", marginBottom:5 }}>
+                  {txt.nameLabel}
+                </label>
+                <input
+                  type="text" value={name} onChange={e => setName(e.target.value)} placeholder={txt.namePH}
+                  style={{
+                    width:"100%", padding:"10px 14px", borderRadius:14,
+                    border:"1.5px solid #e5e7eb", background:"rgba(255,255,255,0.9)",
+                    fontSize:14, color:"#1f2937", transition:"border-color 0.2s, box-shadow 0.2s",
+                  }}
+                  onFocus={e => { e.target.style.borderColor="#a78bfa"; e.target.style.boxShadow="0 0 0 3px rgba(167,139,250,0.2)"; }}
+                  onBlur={e => { e.target.style.borderColor="#e5e7eb"; e.target.style.boxShadow="none"; }}
+                />
+              </div>
+
+              {/* 성격 */}
+              <FieldWithChips
+                label={txt.personalityLabel} value={personality}
+                onChange={e => setPersonality(e.target.value)} placeholder={txt.personalityPH}
+                chips={chips.personality} selectedChips={selPersonality} onChipToggle={togglePersonalityChip}
+              />
+
+              {/* 취미 */}
+              <FieldWithChips
+                label={txt.hobbyLabel} value={hobby}
+                onChange={e => setHobby(e.target.value)} placeholder={txt.hobbyPH}
+                chips={chips.hobby} selectedChips={selHobby} onChipToggle={toggleHobbyChip}
+              />
+
+              {/* 별명 스타일 */}
+              <div style={{ marginBottom:0 }}>
+                <FieldWithChips
+                  label={txt.styleLabel} value={style}
+                  onChange={e => setStyle(e.target.value)} placeholder={txt.stylePH}
+                  chips={chips.style} selectedChips={selStyle} onChipToggle={toggleStyleChip}
+                />
+              </div>
+
+              {error && (
+                <div style={{
+                  marginTop:8, padding:"8px 12px", borderRadius:10,
+                  background:"#fef2f2", border:"1px solid #fca5a5",
+                  fontSize:12, color:"#dc2626", fontWeight:600,
+                }}>
+                  ⚠️ {error}
+                </div>
+              )}
+            </div>
+
+            {/* Generate Button */}
+            <button
+              onClick={handleGenerate} disabled={loading}
+              style={{
+                width:"100%", padding:"15px 0", borderRadius:18, border:"none",
+                background: loading ? "#a78bfa" : "linear-gradient(135deg, #7c3aed, #4f46e5)",
+                color:"#fff", fontSize:15, fontWeight:800,
+                cursor: loading ? "not-allowed" : "pointer",
+                boxShadow:"0 6px 20px rgba(124,58,237,0.4)",
+                transition:"opacity 0.2s, transform 0.1s", letterSpacing:"0.3px",
+              }}
+              onMouseDown={e => { if (!loading) e.currentTarget.style.transform="scale(0.97)"; }}
+              onMouseUp={e => { e.currentTarget.style.transform="scale(1)"; }}
+            >
+              {loading ? (
+                <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                  <span style={{
+                    display:"inline-block", width:14, height:14,
+                    border:"2px solid rgba(255,255,255,0.4)", borderTopColor:"#fff",
+                    borderRadius:"50%", animation:"spin 0.7s linear infinite",
+                  }} />
+                  {txt.btnLoading}
+                </span>
+              ) : txt.btn}
+            </button>
+
+            {/* Results */}
+            {generated && nicknames.length > 0 && (
+              <div style={{ marginTop:22 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"#374151", marginBottom:12, display:"flex", alignItems:"center", gap:6 }}>
+                  🎁 {txt.resultTitle}
+                  <span style={{ background:"#ede9fe", color:"#7c3aed", padding:"2px 8px", borderRadius:99, fontSize:12 }}>
+                    {nicknames.length}개
+                  </span>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {nicknames.map((n, i) => (
+                    <NicknameCard
+                      key={n + i} nickname={n} index={i}
+                      isSelected={selected.has(n)}
+                      onToggle={() => toggleSelect(n)}
+                      onCopy={() => copyToClipboard(n)}
+                      lang={lang}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Selected */}
+            {selectedList.length > 0 && (
+              <div style={{ marginTop:20 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"#374151", marginBottom:10, display:"flex", alignItems:"center", gap:6 }}>
+                  ⭐ {txt.selectedTitle}
+                  <span style={{ background:"#fce7f3", color:"#db2777", padding:"2px 8px", borderRadius:99, fontSize:12 }}>
+                    {selectedList.length}개
+                  </span>
+                </div>
+                <div style={{
+                  background:"linear-gradient(135deg, rgba(245,243,255,0.9), rgba(238,242,255,0.9))",
+                  borderRadius:20, padding:"14px 16px", border:"1.5px solid #ddd6fe",
+                  display:"flex", flexWrap:"wrap", gap:8,
+                }}>
+                  {selectedList.map((n, i) => (
+                    <span key={n+i} style={{
+                      background:"#fff", border:"1.5px solid #c4b5fd", borderRadius:99,
+                      padding:"6px 14px", fontSize:13, fontWeight:700, color:"#5b21b6",
+                      boxShadow:"0 2px 6px rgba(124,58,237,0.1)",
+                    }}>
+                      💜 {n}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

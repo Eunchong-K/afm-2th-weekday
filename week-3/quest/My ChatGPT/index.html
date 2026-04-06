@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My ChatGPT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: linear-gradient(135deg, #fce4f3 0%, #e8d5f5 25%, #d5e8f5 50%, #d5f5e8 75%, #f5f0d5 100%);
+      background-attachment: fixed;
+      color: #4a3f6b;
+      min-height: 100vh;
+    }
+
+    .clay {
+      border-radius: 20px;
+      background: rgba(255,255,255,0.65);
+      box-shadow: 6px 6px 14px rgba(180,150,210,0.25), -4px -4px 10px rgba(255,255,255,0.85),
+        inset 1px 1px 2px rgba(255,255,255,0.9), inset -1px -1px 2px rgba(180,150,210,0.15);
+      backdrop-filter: blur(8px);
+      border: 1.5px solid rgba(255,255,255,0.7);
+    }
+    .clay-sidebar {
+      background: rgba(255,255,255,0.55);
+      box-shadow: 8px 0 24px rgba(180,150,210,0.18), inset -1px 0 0 rgba(255,255,255,0.6);
+      backdrop-filter: blur(12px);
+      border-right: 1.5px solid rgba(255,255,255,0.6);
+    }
+    .clay-btn {
+      border-radius: 14px;
+      background: rgba(255,255,255,0.7);
+      box-shadow: 4px 4px 10px rgba(180,150,210,0.22), -2px -2px 6px rgba(255,255,255,0.9),
+        inset 1px 1px 2px rgba(255,255,255,0.95);
+      border: 1.5px solid rgba(255,255,255,0.75);
+      transition: all 0.18s ease; cursor: pointer;
+    }
+    .clay-btn:hover {
+      box-shadow: 6px 6px 16px rgba(180,150,210,0.3), -2px -2px 6px rgba(255,255,255,0.9),
+        inset 1px 1px 2px rgba(255,255,255,0.95);
+      transform: translateY(-1px);
+    }
+    .clay-btn:active {
+      box-shadow: 2px 2px 6px rgba(180,150,210,0.2), -1px -1px 3px rgba(255,255,255,0.8),
+        inset 2px 2px 5px rgba(180,150,210,0.15);
+      transform: translateY(0);
+    }
+    .clay-input {
+      border-radius: 18px;
+      background: rgba(255,255,255,0.72);
+      box-shadow: inset 3px 3px 8px rgba(180,150,210,0.2), inset -2px -2px 6px rgba(255,255,255,0.9),
+        4px 4px 12px rgba(180,150,210,0.15), -2px -2px 8px rgba(255,255,255,0.8);
+      border: 1.5px solid rgba(255,255,255,0.7);
+      backdrop-filter: blur(8px);
+    }
+    .clay-user-msg {
+      border-radius: 20px 20px 6px 20px;
+      background: linear-gradient(135deg, rgba(198,162,240,0.45), rgba(162,198,240,0.35));
+      box-shadow: 5px 5px 12px rgba(150,120,200,0.2), -3px -3px 8px rgba(255,255,255,0.85),
+        inset 1px 1px 3px rgba(255,255,255,0.8);
+      border: 1.5px solid rgba(255,255,255,0.65);
+    }
+    .clay-ai-msg {
+      border-radius: 20px 20px 20px 6px;
+      background: rgba(255,255,255,0.6);
+      box-shadow: 5px 5px 12px rgba(180,150,210,0.18), -3px -3px 8px rgba(255,255,255,0.85),
+        inset 1px 1px 3px rgba(255,255,255,0.8);
+      border: 1.5px solid rgba(255,255,255,0.65);
+    }
+    .clay-send-btn {
+      width: 38px; height: 38px; border-radius: 50%; border: none;
+      background: linear-gradient(135deg, #c6a2f0, #a2c6f0);
+      box-shadow: 4px 4px 10px rgba(150,120,200,0.35), -2px -2px 6px rgba(255,255,255,0.8),
+        inset 1px 1px 3px rgba(255,255,255,0.5);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.18s ease; flex-shrink: 0;
+    }
+    .clay-send-btn:hover { transform: scale(1.08); }
+    .clay-send-btn:active { transform: scale(0.96); }
+    .clay-send-btn:disabled {
+      background: linear-gradient(135deg, #ddd, #eee);
+      box-shadow: 2px 2px 6px rgba(180,150,210,0.15), -1px -1px 4px rgba(255,255,255,0.7);
+      cursor: not-allowed; transform: none;
+    }
+    .clay-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      box-shadow: 3px 3px 8px rgba(150,120,200,0.3), -2px -2px 5px rgba(255,255,255,0.8),
+        inset 1px 1px 2px rgba(255,255,255,0.6);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      font-size: 16px;
+    }
+
+    /* Profile card */
+    .profile-card {
+      border-radius: 14px;
+      background: rgba(255,255,255,0.55);
+      box-shadow: 3px 3px 8px rgba(180,150,210,0.18), -2px -2px 6px rgba(255,255,255,0.8),
+        inset 1px 1px 2px rgba(255,255,255,0.8);
+      border: 1.5px solid rgba(255,255,255,0.6);
+      cursor: pointer; transition: all 0.18s ease;
+      padding: 10px 11px;
+    }
+    .profile-card:hover {
+      box-shadow: 5px 5px 12px rgba(180,150,210,0.25), -2px -2px 6px rgba(255,255,255,0.85);
+      transform: translateY(-1px);
+    }
+    .profile-card.selected {
+      background: rgba(255,255,255,0.85);
+      box-shadow: 4px 4px 12px rgba(150,120,200,0.28), -2px -2px 6px rgba(255,255,255,0.9),
+        inset 0 0 0 2px rgba(198,162,240,0.55);
+      border-color: rgba(198,162,240,0.5);
+    }
+
+    /* Profile modal overlay */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(180,150,210,0.15);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+      animation: fadeIn 0.18s ease;
+    }
+    .modal-box {
+      background: rgba(255,255,255,0.85);
+      border-radius: 24px;
+      box-shadow: 12px 12px 32px rgba(150,120,200,0.25), -6px -6px 16px rgba(255,255,255,0.9),
+        inset 1px 1px 3px rgba(255,255,255,0.95);
+      border: 1.5px solid rgba(255,255,255,0.8);
+      backdrop-filter: blur(16px);
+      width: 480px; max-width: 92vw;
+      padding: 28px;
+      animation: slideUp 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(180,150,210,0.35); border-radius: 6px; }
+
+    .sidebar { width: 268px; min-width: 268px; height: 100vh; overflow-y: auto; }
+    .main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .messages { flex: 1; overflow-y: auto; }
+
+    .conv-item {
+      padding: 9px 12px; border-radius: 12px; cursor: pointer;
+      font-size: 13px; color: #6b5b95;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: all 0.15s;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .conv-item:hover { background: rgba(255,255,255,0.5); box-shadow: 2px 2px 6px rgba(180,150,210,0.2); }
+    .conv-item.active {
+      background: rgba(255,255,255,0.65);
+      box-shadow: 3px 3px 8px rgba(180,150,210,0.25), -1px -1px 4px rgba(255,255,255,0.8);
+      color: #4a3f6b; font-weight: 500;
+    }
+
+    .msg-content pre {
+      background: rgba(240,235,255,0.7); border-radius: 12px; padding: 14px 16px;
+      overflow-x: auto; margin: 8px 0; position: relative;
+      border: 1px solid rgba(200,180,240,0.3);
+      box-shadow: inset 2px 2px 6px rgba(180,150,210,0.12);
+    }
+    .msg-content pre code { background: transparent !important; padding: 0 !important; font-size: 13px; }
+    .msg-content code:not(pre code) {
+      background: rgba(198,162,240,0.2); color: #7c4dba;
+      padding: 2px 6px; border-radius: 6px; font-size: 13px;
+    }
+    .msg-content p { margin: 6px 0; line-height: 1.75; color: #4a3f6b; }
+    .msg-content ul, .msg-content ol { padding-left: 20px; margin: 6px 0; }
+    .msg-content li { margin: 4px 0; line-height: 1.65; color: #4a3f6b; }
+    .msg-content h1,.msg-content h2,.msg-content h3 { margin: 14px 0 6px; font-weight: 600; color: #3d3060; }
+    .msg-content h1 { font-size: 1.4em; } .msg-content h2 { font-size: 1.2em; } .msg-content h3 { font-size: 1.05em; }
+    .msg-content table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+    .msg-content th, .msg-content td { border: 1px solid rgba(200,180,240,0.4); padding: 8px 12px; }
+    .msg-content th { background: rgba(198,162,240,0.2); font-weight: 600; }
+    .msg-content blockquote { border-left: 3px solid #c6a2f0; padding-left: 12px; color: #7c6b95; margin: 8px 0; }
+    .msg-content a { color: #7c4dba; text-decoration: underline; }
+
+    .copy-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(198,162,240,0.3); border: 1px solid rgba(198,162,240,0.4);
+      color: #7c4dba; padding: 3px 10px; border-radius: 8px; font-size: 11px;
+      cursor: pointer; opacity: 0; transition: opacity 0.2s;
+    }
+    pre:hover .copy-btn { opacity: 1; }
+    .copy-btn:hover { background: rgba(198,162,240,0.5); }
+
+    .typing-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: linear-gradient(135deg, #c6a2f0, #a2c6f0);
+      margin: 0 2px; animation: typing 1.3s infinite;
+      box-shadow: 1px 1px 3px rgba(150,120,200,0.3);
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.22s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.44s; }
+    @keyframes typing {
+      0%,80%,100% { transform: scale(0.55) translateY(0); opacity: 0.4; }
+      40% { transform: scale(1.1) translateY(-3px); opacity: 1; }
+    }
+
+    textarea { resize: none; outline: none; border: none; background: transparent; }
+    .new-chat-btn {
+      width: 100%; display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; font-size: 13.5px; font-weight: 500;
+      color: #6b5b95; transition: all 0.18s;
+    }
+    .new-chat-btn:hover { color: #4a3f6b; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── AI 프로필 정의 ───────────────────────────────────────────────
+const PROFILES = [
+  {
+    id: 'chongchong',
+    name: '총총',
+    emoji: '✨',
+    gradient: 'linear-gradient(135deg,#c6a2f0,#a2d8c6)',
+    tag: '창의적인 친구',
+    description: '아이디어가 넘치는 창의적 친구. 친절하고 명확한 말투.',
+    system: `당신은 '총총'이라는 AI 어시스턴트입니다.
+성격: 창의적이고 아이디어가 풍부하며, 긍정적인 에너지가 넘칩니다.
+말투: 친절하면서도 명확하게 설명합니다. 너무 딱딱하지 않고 친근하게 대화합니다.
+특징: 항상 새롭고 흥미로운 시각으로 접근하며, 사용자가 미처 생각하지 못한 아이디어를 제안합니다.
+규칙: 반드시 대화의 첫 번째 응답을 밝고 생기 있는 인사로 시작하세요. 예: "안녕하세요! 총총이에요 ✨ 오늘도 신나는 아이디어 가득한 하루 만들어볼게요~"`,
+  },
+  {
+    id: 'calmly',
+    name: '차분이',
+    emoji: '🌿',
+    gradient: 'linear-gradient(135deg,#a2d8c6,#a2bef0)',
+    tag: '논리적인 전문가',
+    description: '차분하고 논리적인 분석가. 깊고 체계적인 답변.',
+    system: `당신은 '차분이'라는 AI 어시스턴트입니다.
+성격: 침착하고 논리적이며 신중합니다. 감정보다는 근거와 사실을 중요시합니다.
+말투: 차분하고 체계적으로 설명합니다. 명확한 구조로 정보를 전달합니다.
+특징: 복잡한 문제를 단계별로 분석하고 핵심을 짚어냅니다.
+규칙: 반드시 대화의 첫 번째 응답을 따뜻하고 차분한 인사로 시작하세요. 예: "안녕하세요 🌿 차분이입니다. 오늘 어떤 것을 함께 알아볼까요?"`,
+  },
+  {
+    id: 'humor',
+    name: '웃음이',
+    emoji: '😄',
+    gradient: 'linear-gradient(135deg,#f0d4a2,#f0a2c6)',
+    tag: '유머 가득한 친구',
+    description: '재치있고 유머러스한 대화 상대. 항상 긍정적.',
+    system: `당신은 '웃음이'라는 AI 어시스턴트입니다.
+성격: 유머 감각이 넘치고 긍정적이며 재치있습니다. 대화를 즐겁게 만드는 것을 좋아합니다.
+말투: 가볍고 재미있게, 가끔 농담을 섞어가며 대화합니다. 하지만 중요한 내용은 정확하게 전달합니다.
+특징: 어려운 내용도 유머를 섞어 쉽고 재미있게 설명합니다.
+규칙: 반드시 대화의 첫 번째 응답을 신나고 유쾌한 인사로 시작하세요. 예: "야호~ 😄 웃음이 등장! 오늘도 신나게 달려볼까요? ㅎㅎ"`,
+  },
+  {
+    id: 'teacher',
+    name: '선생님',
+    emoji: '📚',
+    gradient: 'linear-gradient(135deg,#a2b8f0,#c6a2f0)',
+    tag: '친절한 선생님',
+    description: '쉽고 친절하게 가르쳐주는 선생님. 예시를 잘 들어줌.',
+    system: `당신은 '선생님'이라는 AI 어시스턴트입니다.
+성격: 인내심이 많고 친절하며, 상대방이 이해할 때까지 다양한 방법으로 설명합니다.
+말투: 이해하기 쉬운 언어를 사용하고, 구체적인 예시를 자주 들어줍니다.
+특징: 복잡한 개념을 단순하게 풀어내는 능력이 탁월합니다. 모르는 것을 물어봐도 절대 무시하지 않습니다.
+규칙: 반드시 대화의 첫 번째 응답을 따뜻한 선생님처럼 인사로 시작하세요. 예: "안녕하세요! 📚 선생님이에요. 궁금한 건 뭐든지 물어봐요, 함께 알아가요!"`,
+  },
+];
+
+marked.setOptions({
+  highlight: (code, lang) => {
+    if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+    return hljs.highlightAuto(code).value;
+  },
+  breaks: true, gfm: true,
+});
+
+function MarkdownContent({ text }) {
+  const ref = useRef(null);
+  const html = marked.parse(text || '');
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.querySelectorAll('pre').forEach(pre => {
+      if (pre.querySelector('.copy-btn')) return;
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.textContent = '복사';
+      btn.onclick = () => {
+        navigator.clipboard.writeText(pre.querySelector('code')?.innerText || '').then(() => {
+          btn.textContent = '완료!';
+          setTimeout(() => { btn.textContent = '복사'; }, 1500);
+        });
+      };
+      pre.appendChild(btn);
+    });
+  }, [html]);
+  return <div ref={ref} className="msg-content" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function TypingIndicator() {
+  return (
+    <div className="flex items-center gap-0.5 py-1">
+      <span className="typing-dot"></span><span className="typing-dot"></span><span className="typing-dot"></span>
+    </div>
+  );
+}
+
+function genTitle(text) { return text.slice(0, 28) + (text.length > 28 ? '…' : ''); }
+
+const STORAGE_KEY = 'my-chatgpt-convs';
+const PROFILE_KEY = 'my-chatgpt-profile';
+function loadConvs() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
+function saveConvs(c) { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)); }
+
+// ─── Profile Modal ────────────────────────────────────────────────
+function ProfileModal({ current, onSelect, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 style={{fontSize:18, fontWeight:700, color:'#4a3f6b', margin:0}}>AI 프로필 선택</h2>
+          <button
+            onClick={onClose}
+            className="clay-btn"
+            style={{width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', padding:0}}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {PROFILES.map(p => (
+            <div
+              key={p.id}
+              className={`profile-card ${current === p.id ? 'selected' : ''}`}
+              onClick={() => { onSelect(p.id); onClose(); }}
+            >
+              <div className="flex items-center gap-2.5 mb-2">
+                <div style={{
+                  width:40, height:40, borderRadius:'50%', background:p.gradient, flexShrink:0,
+                  boxShadow:'3px 3px 8px rgba(150,120,200,0.25),-2px -2px 5px rgba(255,255,255,0.8)',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:20
+                }}>{p.emoji}</div>
+                <div>
+                  <div style={{fontWeight:700, fontSize:14, color:'#4a3f6b'}}>{p.name}</div>
+                  <div style={{fontSize:11, color:'#a090c0', marginTop:1}}>{p.tag}</div>
+                </div>
+                {current === p.id && (
+                  <div style={{marginLeft:'auto', width:18, height:18, borderRadius:'50%', background:'linear-gradient(135deg,#c6a2f0,#a2c6f0)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <p style={{fontSize:12, color:'#7c6b95', margin:0, lineHeight:1.5}}>{p.description}</p>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:11, color:'#b0a0cc', textAlign:'center', marginTop:16, marginBottom:0}}>
+          프로필을 바꾸면 새 대화부터 적용됩니다
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────
+function App() {
+  const [convs, setConvs] = useState(loadConvs);
+  const [activeId, setActiveId] = useState(null);
+  const [input, setInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState(null);
+  const [profileId, setProfileId] = useState(() => localStorage.getItem(PROFILE_KEY) || 'chongchong');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const bottomRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const profile = PROFILES.find(p => p.id === profileId) || PROFILES[0];
+  const activeConv = convs.find(c => c.id === activeId) || null;
+  const messages = activeConv?.messages || [];
+  // messages stored without system; we inject system when sending
+  const visibleMessages = messages.filter(m => m.role !== 'system');
+
+  useEffect(() => { saveConvs(convs); }, [convs]);
+  useEffect(() => { localStorage.setItem(PROFILE_KEY, profileId); }, [profileId]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [visibleMessages, streaming]);
+
+  const newChat = () => { setActiveId(null); setInput(''); setError(null); textareaRef.current?.focus(); };
+  const selectConv = (id) => { setActiveId(id); setError(null); };
+  const deleteConv = (e, id) => {
+    e.stopPropagation();
+    setConvs(prev => prev.filter(c => c.id !== id));
+    if (activeId === id) setActiveId(null);
+  };
+
+  const selectProfile = (id) => { setProfileId(id); };
+
+  const sendMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    setError(null);
+    const userMsg = { role: 'user', content: text };
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    let convId = activeId;
+    let updatedConvs;
+    const currentProfile = PROFILES.find(p => p.id === profileId) || PROFILES[0];
+
+    if (!convId) {
+      convId = Date.now().toString();
+      updatedConvs = [{
+        id: convId,
+        title: genTitle(text),
+        profileId: currentProfile.id,
+        messages: [userMsg]
+      }, ...convs];
+      setConvs(updatedConvs);
+      setActiveId(convId);
+    } else {
+      updatedConvs = convs.map(c => c.id === convId ? { ...c, messages: [...c.messages, userMsg] } : c);
+      setConvs(updatedConvs);
+    }
+
+    const conv = updatedConvs.find(c => c.id === convId);
+    const convProfile = PROFILES.find(p => p.id === (conv.profileId || profileId)) || PROFILES[0];
+
+    // Build messages with system prompt prepended
+    const apiMessages = [
+      { role: 'system', content: convProfile.system },
+      ...conv.messages,
+    ];
+
+    setStreaming(true);
+    setConvs(prev => prev.map(c =>
+      c.id === convId ? { ...c, messages: [...c.messages, { role: 'assistant', content: '' }] } : c
+    ));
+
+    try {
+      const res = await fetch('http://localhost:3000/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages }),
+      });
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data: ')) continue;
+          const d = t.slice(6);
+          if (d === '[DONE]') continue;
+          try {
+            const p = JSON.parse(d);
+            if (p.content) {
+              fullContent += p.content;
+              const cap = fullContent;
+              setConvs(prev => prev.map(c => {
+                if (c.id !== convId) return c;
+                const msgs = [...c.messages];
+                msgs[msgs.length - 1] = { role: 'assistant', content: cap };
+                return { ...c, messages: msgs };
+              }));
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      setError(err.message.includes('fetch') ? '서버에 연결할 수 없습니다. node server.js를 실행했는지 확인하세요.' : err.message);
+      setConvs(prev => prev.map(c => {
+        if (c.id !== convId) return c;
+        const msgs = c.messages.filter((_, i) =>
+          !(i === c.messages.length - 1 && c.messages[c.messages.length - 1].content === '')
+        );
+        return { ...c, messages: msgs };
+      }));
+    } finally {
+      setStreaming(false);
+      textareaRef.current?.focus();
+    }
+  }, [input, streaming, activeId, convs, profileId]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const canSend = input.trim().length > 0 && !streaming;
+
+  // Profile used in active conversation (or current selected)
+  const activeConvProfile = activeConv
+    ? PROFILES.find(p => p.id === activeConv.profileId) || profile
+    : profile;
+
+  return (
+    <div className="flex h-screen">
+
+      {/* ── Sidebar ── */}
+      <div className="sidebar clay-sidebar flex flex-col p-3">
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 px-3 py-3 mb-2">
+          <div className="clay-avatar" style={{background:'linear-gradient(135deg,#c6a2f0,#a2d8c6)'}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+          </div>
+          <span className="font-semibold text-[15px]" style={{color:'#4a3f6b'}}>My ChatGPT</span>
+        </div>
+
+        {/* New Chat */}
+        <button onClick={newChat} className="clay-btn new-chat-btn mb-3">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          새 대화
+        </button>
+
+        {/* Profile picker button */}
+        <button
+          onClick={() => setShowProfileModal(true)}
+          className="clay-btn mb-4"
+          style={{width:'100%', padding:'10px 12px', display:'flex', alignItems:'center', gap:10, textAlign:'left'}}
+        >
+          <div style={{
+            width:34, height:34, borderRadius:'50%', background:profile.gradient, flexShrink:0,
+            boxShadow:'2px 2px 6px rgba(150,120,200,0.22),-1px -1px 3px rgba(255,255,255,0.8)',
+            display:'flex', alignItems:'center', justifyContent:'center', fontSize:17
+          }}>{profile.emoji}</div>
+          <div style={{flex:1, minWidth:0}}>
+            <div style={{fontSize:13, fontWeight:600, color:'#4a3f6b'}}>{profile.name}</div>
+            <div style={{fontSize:11, color:'#a090c0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{profile.tag}</div>
+          </div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b0a0cc" strokeWidth="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {/* Conv list */}
+        <div className="flex-1 overflow-y-auto">
+          {convs.length > 0 && (
+            <div className="px-3 py-1 mb-1" style={{fontSize:11, color:'#a090c0', fontWeight:600, letterSpacing:'0.05em'}}>
+              최근 대화
+            </div>
+          )}
+          {convs.map(conv => {
+            const cp = PROFILES.find(p => p.id === conv.profileId) || PROFILES[0];
+            return (
+              <div
+                key={conv.id}
+                onClick={() => selectConv(conv.id)}
+                className={`conv-item group ${activeId === conv.id ? 'active' : ''}`}
+              >
+                <span style={{fontSize:14, marginRight:6}}>{cp.emoji}</span>
+                <span className="truncate flex-1 text-[13px]">{conv.title}</span>
+                <button
+                  onClick={(e) => deleteConv(e, conv.id)}
+                  className="opacity-0 group-hover:opacity-100 ml-1 flex-shrink-0 transition-opacity"
+                  style={{color:'#c0a0d0'}}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Main ── */}
+      <div className="main">
+
+        {/* Top bar */}
+        <div style={{
+          display:'flex', alignItems:'center', justifyContent:'center',
+          padding:'12px 20px 0', gap:8
+        }}>
+          <div style={{
+            display:'inline-flex', alignItems:'center', gap:8,
+            background:'rgba(255,255,255,0.55)', borderRadius:30,
+            padding:'6px 14px 6px 8px',
+            boxShadow:'3px 3px 8px rgba(180,150,210,0.15),-1px -1px 4px rgba(255,255,255,0.8)',
+            border:'1.5px solid rgba(255,255,255,0.65)',
+          }}>
+            <div style={{
+              width:26, height:26, borderRadius:'50%', background:activeConvProfile.gradient,
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:14
+            }}>{activeConvProfile.emoji}</div>
+            <span style={{fontSize:13, fontWeight:600, color:'#6b5b95'}}>{activeConvProfile.name}</span>
+            <span style={{fontSize:12, color:'#b0a0cc'}}>·</span>
+            <span style={{fontSize:12, color:'#a090c0'}}>{activeConvProfile.tag}</span>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="messages">
+          {visibleMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4"
+                 style={{minHeight:'calc(100vh - 160px)'}}>
+              <div style={{
+                width:80, height:80, borderRadius:'50%', background:profile.gradient,
+                boxShadow:'6px 6px 18px rgba(150,120,200,0.3),-4px -4px 10px rgba(255,255,255,0.85),inset 2px 2px 4px rgba(255,255,255,0.6)',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:38, marginBottom:20
+              }}>{profile.emoji}</div>
+              <h2 style={{fontSize:22, fontWeight:700, color:'#4a3f6b', marginBottom:6}}>
+                안녕하세요! <span style={{color:'#9b7fe8'}}>{profile.name}</span>이에요
+              </h2>
+              <p style={{color:'#9080b0', fontSize:14, maxWidth:300, lineHeight:1.6, marginBottom:24}}>
+                {profile.description}
+              </p>
+
+              <div className="flex flex-wrap gap-2 justify-center" style={{maxWidth:460}}>
+                {['오늘 점심 추천해줘 🍱', '간단한 Python 코드 짜줘 🐍', '영어로 이메일 써줘 ✉️', '창의적인 아이디어 줘 💡'].map(s => (
+                  <button
+                    key={s}
+                    className="clay-btn px-4 py-2 text-sm"
+                    style={{color:'#6b5b95', fontWeight:500}}
+                    onClick={() => { setInput(s); textareaRef.current?.focus(); }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
+              {visibleMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+
+                  {msg.role === 'assistant' && (
+                    <div className="clay-avatar mb-1" style={{background:activeConvProfile.gradient, fontSize:16}}>
+                      {activeConvProfile.emoji}
+                    </div>
+                  )}
+
+                  <div
+                    className={msg.role === 'user' ? 'clay-user-msg px-4 py-3' : 'clay-ai-msg px-4 py-3 flex-1'}
+                    style={{ maxWidth: msg.role === 'user' ? '72%' : undefined, fontSize: 14.5 }}
+                  >
+                    {msg.role === 'assistant' ? (
+                      msg.content === '' && streaming && i === visibleMessages.length - 1
+                        ? <TypingIndicator />
+                        : <MarkdownContent text={msg.content} />
+                    ) : (
+                      <span className="whitespace-pre-wrap" style={{color:'#3d3060'}}>{msg.content}</span>
+                    )}
+                  </div>
+
+                  {msg.role === 'user' && (
+                    <div style={{
+                      width:32, height:32, borderRadius:'50%', flexShrink:0, marginBottom:4,
+                      background:'linear-gradient(135deg,#a2b8f0,#f0a2d8)',
+                      boxShadow:'3px 3px 8px rgba(150,120,200,0.28),-2px -2px 5px rgba(255,255,255,0.8),inset 1px 1px 2px rgba(255,255,255,0.5)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                        <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={bottomRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="max-w-3xl mx-auto px-5 mb-2">
+            <div className="clay px-4 py-3 flex items-center justify-between"
+                 style={{background:'rgba(255,210,210,0.6)',borderColor:'rgba(240,160,160,0.5)',color:'#9b4040'}}>
+              <span className="text-sm">{error}</span>
+              <button onClick={() => setError(null)} className="ml-3 opacity-60 hover:opacity-100">✕</button>
+            </div>
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="max-w-3xl mx-auto w-full px-5 pb-5">
+          <div className="clay-input flex items-end gap-3 px-4 py-3">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => {
+                setInput(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={`${profile.name}에게 메시지를 보내세요...`}
+              rows={1}
+              className="flex-1 text-[14.5px] placeholder-[#b0a0cc]"
+              style={{ maxHeight:'200px', lineHeight:'1.65', color:'#4a3f6b' }}
+              disabled={streaming}
+            />
+            <button onClick={sendMessage} disabled={!canSend} className="clay-send-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"/>
+                <polyline points="5 12 12 5 19 12"/>
+              </svg>
+            </button>
+          </div>
+          <p className="text-center text-[11px] mt-2" style={{color:'#b0a0cc'}}>
+            Enter로 전송 · Shift+Enter로 줄바꿈
+          </p>
+        </div>
+      </div>
+
+      {/* Profile Modal */}
+      {showProfileModal && (
+        <ProfileModal
+          current={profileId}
+          onSelect={selectProfile}
+          onClose={() => setShowProfileModal(false)}
+        />
+      )}
+
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
