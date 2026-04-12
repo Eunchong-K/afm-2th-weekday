@@ -1,0 +1,7 @@
+node_modules/
+.env
+fridge.db
+fridge.db-shm
+fridge.db-wal
+data/
+recipe-suggestions/

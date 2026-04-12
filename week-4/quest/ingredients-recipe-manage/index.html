@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>냉장고 재료 & 레시피 관리</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Noto Sans KR', sans-serif; }
+    .modal-overlay {
+      animation: fadeIn 0.2s ease-out;
+    }
+    .modal-content {
+      animation: slideUp 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              200: '#bbf7d0',
+              300: '#86efac',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-amber-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo } = React;
+
+    // ========================================
+    // 🌐 API 유틸
+    // ========================================
+    const API = {
+      async get(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`GET ${url} 실패: ${res.status}`);
+        return res.json();
+      },
+      async post(url, body) {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`POST ${url} 실패: ${res.status}`);
+        return res.json();
+      },
+      async patch(url, body) {
+        const res = await fetch(url, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`PATCH ${url} 실패: ${res.status}`);
+        return res.json();
+      },
+      async del(url) {
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) throw new Error(`DELETE ${url} 실패: ${res.status}`);
+        return res.json();
+      },
+    };
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = 'primary', size = 'md', disabled = false, onClick, className = '', children, type = 'button' }) {
+      const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+      const variants = {
+        primary: 'bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 shadow-sm',
+        secondary: 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-primary-500',
+        danger: 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-400 shadow-sm',
+        ghost: 'text-gray-600 hover:bg-gray-100 focus:ring-gray-400',
+      };
+      const sizes = {
+        sm: 'px-3 py-1.5 text-sm',
+        md: 'px-4 py-2 text-sm',
+        lg: 'px-6 py-3 text-base',
+      };
+      return (
+        <button
+          type={type}
+          disabled={disabled}
+          onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, value, onChange, placeholder, error, disabled, type = 'text', className = '', ...rest }) {
+      return (
+        <div className={className}>
+          {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+          <input
+            type={type}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            disabled={disabled}
+            className={`w-full px-3 py-2 border rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 ${
+              error ? 'border-red-400' : 'border-gray-300'
+            } ${disabled ? 'bg-gray-100' : 'bg-white'}`}
+            {...rest}
+          />
+          {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+        </div>
+      );
+    }
+
+    function Select({ label, value, onChange, options, className = '' }) {
+      return (
+        <div className={className}>
+          {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+          <select
+            value={value}
+            onChange={onChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          >
+            {options.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Modal({ isOpen, onClose, title, children, size = 'md' }) {
+      if (!isOpen) return null;
+      const sizes = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' };
+      return (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+          <div
+            className={`modal-content bg-white rounded-2xl shadow-xl w-full ${sizes[size]} max-h-[85vh] flex flex-col`}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1" aria-label="닫기">&times;</button>
+            </div>
+            <div className="p-5 overflow-y-auto">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    function Badge({ children, color = 'green', className = '' }) {
+      const colors = {
+        green: 'bg-primary-100 text-primary-700',
+        gray: 'bg-gray-100 text-gray-600',
+        amber: 'bg-amber-100 text-amber-700',
+      };
+      return (
+        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]} ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    // ========================================
+    // 🧩 Header Component
+    // ========================================
+    function Header({ activeTab, onTabChange }) {
+      const tabs = [
+        { id: 'ingredients', label: '냉장고 재료', emoji: '🥬' },
+        { id: 'recipes', label: '레시피', emoji: '🍳' },
+      ];
+      return (
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+          <div className="max-w-4xl mx-auto px-4">
+            <div className="flex items-center justify-between py-3">
+              <h1 className="text-xl font-bold text-primary-700 flex items-center gap-2">
+                <span className="text-2xl">🍽️</span> 냉장고 매니저
+              </h1>
+            </div>
+            <nav className="flex gap-1 -mb-px">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => onTabChange(tab.id)}
+                  className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+                    activeTab === tab.id
+                      ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-600'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {tab.emoji} {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 📄 냉장고 재료 페이지
+    // ========================================
+    function IngredientsPage({ ingredients, onAdd, onUpdate, onDelete }) {
+      const [name, setName] = useState('');
+      const [quantity, setQuantity] = useState('');
+      const [unit, setUnit] = useState('개');
+      const [storage, setStorage] = useState('cold'); // 'cold' | 'frozen'
+      const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'cold' | 'frozen'
+      const [saving, setSaving] = useState(false);
+      // 인라인 수정
+      const [editingId, setEditingId] = useState(null);
+      const [editValues, setEditValues] = useState({ quantity: '', unit: '개' });
+      const [editSaving, setEditSaving] = useState(false);
+
+      const unitOptions = [
+        { value: '개', label: '개' },
+        { value: 'g', label: 'g' },
+        { value: 'kg', label: 'kg' },
+        { value: 'ml', label: 'ml' },
+        { value: 'L', label: 'L' },
+        { value: '컵', label: '컵' },
+        { value: '큰술', label: '큰술' },
+        { value: '작은술', label: '작은술' },
+        { value: '줌', label: '줌' },
+        { value: '장', label: '장' },
+        { value: '팩', label: '팩' },
+      ];
+
+      const handleAdd = async () => {
+        if (!name.trim() || !quantity || saving) return;
+        setSaving(true);
+        try {
+          await onAdd({ name: name.trim(), quantity: Number(quantity), unit, storage });
+          setName('');
+          setQuantity('');
+          setUnit('개');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const handleDelete = (id) => onDelete(id);
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter') handleAdd();
+      };
+
+      const startEdit = (item) => {
+        setEditingId(item.id);
+        setEditValues({ quantity: item.quantity, unit: item.unit });
+      };
+
+      const cancelEdit = () => { setEditingId(null); };
+
+      const saveEdit = async (id) => {
+        if (editSaving) return;
+        setEditSaving(true);
+        try {
+          await onUpdate(id, {
+            quantity: Number(editValues.quantity),
+            unit: editValues.unit,
+          });
+          setEditingId(null);
+        } finally {
+          setEditSaving(false);
+        }
+      };
+
+      const coldCount = ingredients.filter(i => i.storage !== 'frozen').length;
+      const frozenCount = ingredients.filter(i => i.storage === 'frozen').length;
+
+      const filtered = activeFilter === 'all'
+        ? ingredients
+        : activeFilter === 'frozen'
+          ? ingredients.filter(i => i.storage === 'frozen')
+          : ingredients.filter(i => i.storage !== 'frozen');
+
+      return (
+        <div className="space-y-6">
+          {/* 재료 등록 폼 */}
+          <Card className="!p-5">
+            <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <span>➕</span> 재료 등록
+            </h2>
+
+            {/* 냉장/냉동 선택 토글 */}
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setStorage('cold')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  storage === 'cold'
+                    ? 'bg-sky-500 text-white border-sky-500 shadow-sm'
+                    : 'bg-white text-gray-500 border-gray-300 hover:border-sky-300'
+                }`}
+              >
+                🧊 냉장
+              </button>
+              <button
+                type="button"
+                onClick={() => setStorage('frozen')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  storage === 'frozen'
+                    ? 'bg-indigo-500 text-white border-indigo-500 shadow-sm'
+                    : 'bg-white text-gray-500 border-gray-300 hover:border-indigo-300'
+                }`}
+              >
+                ❄️ 냉동
+              </button>
+            </div>
+
+            {/* 재료명 */}
+            <div className="mb-3">
+              <Input
+                placeholder="재료 이름"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+            </div>
+
+            {/* 수량 / 단위 */}
+            <div className="flex gap-3 mb-3">
+              <Input
+                type="number"
+                placeholder="수량"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="flex-1"
+                min="0"
+                step="any"
+              />
+              <Select
+                value={unit}
+                onChange={e => setUnit(e.target.value)}
+                options={unitOptions}
+                className="w-32"
+              />
+            </div>
+
+            {/* 등록 버튼 */}
+            <Button
+              onClick={handleAdd}
+              disabled={!name.trim() || !quantity || saving}
+              className="w-full"
+            >
+              {saving ? '저장 중…' : '등록'}
+            </Button>
+          </Card>
+
+          {/* ── 재료 테이블 ── */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* 테이블 헤더 영역 */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+              <span className="text-sm font-semibold text-gray-700">🗄️ 재료 테이블</span>
+              <div className="flex gap-1.5">
+                {[
+                  { key: 'all',    label: `전체 ${ingredients.length}` },
+                  { key: 'cold',   label: `🧊 냉장 ${coldCount}` },
+                  { key: 'frozen', label: `❄️ 냉동 ${frozenCount}` },
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setActiveFilter(f.key)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                      activeFilter === f.key
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-500 border-gray-300 hover:border-primary-400'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filtered.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-4xl mb-2">🧊</p>
+                <p className="text-sm">{activeFilter === 'all' ? '등록된 재료가 없습니다.' : '해당 칸에 재료가 없습니다.'}</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                      <th className="px-4 py-2.5 text-left">재료명</th>
+                      <th className="px-4 py-2.5 text-right">수량</th>
+                      <th className="px-4 py-2.5 text-left">단위</th>
+                      <th className="px-4 py-2.5 text-left">보관</th>
+                      <th className="px-4 py-2.5 text-center w-20">수정</th>
+                      <th className="px-4 py-2.5 text-center w-16">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filtered.map((item, idx) => {
+                      const isFrozen = item.storage === 'frozen';
+                      const isEditing = editingId === item.id;
+                      return (
+                        <tr key={item.id} className={`transition-colors ${isEditing ? 'bg-amber-50' : idx % 2 === 0 ? 'hover:bg-gray-50' : 'bg-gray-50/40 hover:bg-gray-50'}`}>
+                          <td className="px-4 py-2.5 font-medium text-gray-800">{item.name}</td>
+
+                          {/* 수량 */}
+                          <td className="px-4 py-2.5 text-right">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                value={editValues.quantity}
+                                onChange={e => setEditValues(v => ({ ...v, quantity: e.target.value }))}
+                                className="w-20 px-2 py-1 border border-amber-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                min="0" step="any"
+                              />
+                            ) : (
+                              <span className="text-gray-700 tabular-nums">{item.quantity}</span>
+                            )}
+                          </td>
+
+                          {/* 단위 */}
+                          <td className="px-4 py-2.5">
+                            {isEditing ? (
+                              <select
+                                value={editValues.unit}
+                                onChange={e => setEditValues(v => ({ ...v, unit: e.target.value }))}
+                                className="px-2 py-1 border border-amber-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                              >
+                                {unitOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                            ) : (
+                              <span className="text-gray-500">{item.unit}</span>
+                            )}
+                          </td>
+
+                          {/* 보관 */}
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                              isFrozen ? 'bg-indigo-100 text-indigo-700' : 'bg-sky-100 text-sky-700'
+                            }`}>
+                              {isFrozen ? '❄️ 냉동' : '🧊 냉장'}
+                            </span>
+                          </td>
+
+                          {/* 수정/저장 버튼 */}
+                          <td className="px-4 py-2.5 text-center">
+                            {isEditing ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => saveEdit(item.id)}
+                                  disabled={editSaving}
+                                  className="px-2 py-0.5 bg-amber-500 text-white rounded text-xs font-medium hover:bg-amber-600 disabled:opacity-50"
+                                >
+                                  {editSaving ? '…' : '저장'}
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs font-medium hover:bg-gray-300"
+                                >
+                                  취소
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => startEdit(item)}
+                                className="text-gray-400 hover:text-amber-500 transition-colors text-sm"
+                                aria-label={`${item.name} 수정`}
+                              >
+                                ✏️
+                              </button>
+                            )}
+                          </td>
+
+                          {/* 삭제 */}
+                          <td className="px-4 py-2.5 text-center">
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              disabled={isEditing}
+                              className="text-gray-300 hover:text-red-500 transition-colors font-medium text-sm leading-none disabled:opacity-30"
+                              aria-label={`${item.name} 삭제`}
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-400 text-right">
+              냉장 {coldCount}행 · 냉동 {frozenCount}행 · 총 {ingredients.length}행
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 조리 방법 프리셋 태그
+    const COOKING_METHOD_TAGS = [
+      { label: '찌기', emoji: '♨️' },
+      { label: '볶기', emoji: '🔥' },
+      { label: '굽기', emoji: '🥩' },
+      { label: '끓이기', emoji: '🍲' },
+      { label: '튀기기', emoji: '🛢️' },
+      { label: '삶기', emoji: '💧' },
+      { label: '무치기', emoji: '🥗' },
+      { label: '절이기', emoji: '🧂' },
+      { label: '다지기', emoji: '🔪' },
+      { label: '썰기', emoji: '🍴' },
+      { label: '데치기', emoji: '🫕' },
+      { label: '재우기', emoji: '⏱️' },
+    ];
+
+    // ========================================
+    // 📄 레시피 페이지
+    // ========================================
+    function RecipesPage({ recipes, onAdd, onDelete, onGenerate, ingredients }) {
+      const [showForm, setShowForm] = useState(false);
+      const [selectedRecipe, setSelectedRecipe] = useState(null);
+      const [saving, setSaving] = useState(false);
+      const [generating, setGenerating] = useState(false);
+      const [searchQ, setSearchQ] = useState('');
+      const [genError, setGenError] = useState('');
+      const [showAIModal, setShowAIModal] = useState(false);
+      const [selectedAIIngredients, setSelectedAIIngredients] = useState([]);
+      const [checkedIds, setCheckedIds] = useState(new Set());
+      const [generatedRecipes, setGeneratedRecipes] = useState(null);
+      const [lastSelectedIngredients, setLastSelectedIngredients] = useState([]);
+
+      // 레시피 폼 상태
+      const [recipeName, setRecipeName] = useState('');
+      const [recipeIngredients, setRecipeIngredients] = useState([]);
+      const [steps, setSteps] = useState(['']);
+
+      const unitOptions = [
+        { value: '개', label: '개' },
+        { value: 'g', label: 'g' },
+        { value: 'kg', label: 'kg' },
+        { value: 'ml', label: 'ml' },
+        { value: 'L', label: 'L' },
+        { value: '컵', label: '컵' },
+        { value: '큰술', label: '큰술' },
+        { value: '작은술', label: '작은술' },
+        { value: '줌', label: '줌' },
+        { value: '적당량', label: '적당량' },
+      ];
+
+      const resetForm = () => {
+        setRecipeName('');
+        setRecipeIngredients([]);
+        setSteps(['']);
+        setShowForm(false);
+      };
+
+      // 냉장고 재료 태그 토글
+      const handleFridgeTagToggle = (ing) => {
+        const exists = recipeIngredients.some(r => r.name === ing.name);
+        if (exists) {
+          setRecipeIngredients(prev => prev.filter(r => r.name !== ing.name));
+        } else {
+          setRecipeIngredients(prev => [...prev, { name: ing.name, quantity: '', unit: ing.unit, fromFridge: true }]);
+        }
+      };
+
+      // 직접 입력 재료 추가
+      const handleAddManualIngredient = () => {
+        setRecipeIngredients(prev => [...prev, { name: '', quantity: '', unit: '개', fromFridge: false }]);
+      };
+
+      const handleRemoveIngredient = (index) => {
+        setRecipeIngredients(prev => prev.filter((_, i) => i !== index));
+      };
+
+      const handleIngredientChange = (index, field, value) => {
+        setRecipeIngredients(prev =>
+          prev.map((item, i) => i === index ? { ...item, [field]: value } : item)
+        );
+      };
+
+      const handleAddStep = () => {
+        setSteps(prev => [...prev, '']);
+      };
+
+      const handleRemoveStep = (index) => {
+        if (steps.length <= 1) return;
+        setSteps(prev => prev.filter((_, i) => i !== index));
+      };
+
+      const handleStepChange = (index, value) => {
+        setSteps(prev => prev.map((s, i) => i === index ? value : s));
+      };
+
+      // 조리 방법 태그 클릭 → 해당 단계에 텍스트 추가
+      const handleMethodTagClick = (stepIdx, method) => {
+        setSteps(prev => prev.map((s, i) => {
+          if (i !== stepIdx) return s;
+          const trimmed = s.trimEnd();
+          return trimmed ? `${trimmed} → ${method}` : method;
+        }));
+      };
+
+      const handleSaveRecipe = async () => {
+        const validIngredients = recipeIngredients.filter(i => i.name.trim());
+        const validSteps = steps.filter(s => s.trim());
+        if (!recipeName.trim() || validIngredients.length === 0 || validSteps.length === 0 || saving) return;
+        setSaving(true);
+        try {
+          await onAdd({ name: recipeName.trim(), ingredients: validIngredients, steps: validSteps });
+          resetForm();
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const handleDeleteRecipe = async (id) => {
+        await onDelete(id);
+        if (selectedRecipe?.id === id) setSelectedRecipe(null);
+      };
+
+      const canSave = recipeName.trim() &&
+        recipeIngredients.some(i => i.name.trim()) &&
+        steps.some(s => s.trim());
+
+      // AI 모달 열기 — 아무것도 선택되지 않은 상태로 시작
+      const handleOpenAIModal = () => {
+        setSelectedAIIngredients([]);
+        setShowAIModal(true);
+      };
+
+      const toggleAIIngredient = (ing) => {
+        setSelectedAIIngredients(prev =>
+          prev.some(i => i.id === ing.id)
+            ? prev.filter(i => i.id !== ing.id)
+            : [...prev, ing]
+        );
+      };
+
+      const handleConfirmGenerate = async () => {
+        if (generating) return;
+        setShowAIModal(false);
+        setGenerating(true);
+        setGenError('');
+        try {
+          const selectedIngredientIds = selectedAIIngredients.map(i => i.id);
+          const existingNames = recipes.map(r => r.name);
+          const snapshotSelected = [...selectedAIIngredients];
+          const newRecipes = await onGenerate({ selectedIngredientIds, existingNames });
+          if (newRecipes && newRecipes.length > 0) {
+            setLastSelectedIngredients(snapshotSelected);
+            setGeneratedRecipes(newRecipes);
+          }
+        } catch (err) {
+          setGenError(err.message || 'AI 생성 실패');
+        } finally {
+          setGenerating(false);
+        }
+      };
+
+      // 체크박스 관련
+      const toggleChecked = (id) => {
+        setCheckedIds(prev => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id); else next.add(id);
+          return next;
+        });
+      };
+
+      const filteredRecipes = searchQ.trim()
+        ? recipes.filter(r =>
+            r.name.includes(searchQ) ||
+            r.ingredients.some(i => i.name.includes(searchQ))
+          )
+        : recipes;
+
+      const allChecked = filteredRecipes.length > 0 && checkedIds.size === filteredRecipes.length;
+
+      const toggleAllChecked = () => {
+        setCheckedIds(allChecked ? new Set() : new Set(filteredRecipes.map(r => r.id)));
+      };
+
+      const handleBulkDelete = async () => {
+        for (const id of checkedIds) {
+          await onDelete(id);
+        }
+        setCheckedIds(new Set());
+      };
+
+      return (
+        <div className="space-y-6">
+          {/* 액션 버튼 영역 */}
+          {!showForm && (
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+              <div className="flex gap-2 flex-wrap">
+                <Button onClick={() => setShowForm(true)}>
+                  ➕ 레시피 직접 작성
+                </Button>
+                <Button
+                  onClick={handleOpenAIModal}
+                  disabled={generating || ingredients.length === 0}
+                  className="bg-violet-600 hover:bg-violet-700 focus:ring-violet-500 text-white"
+                >
+                  {generating ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      AI 생성 중…
+                    </span>
+                  ) : '✨ AI 레시피 생성'}
+                </Button>
+                {checkedIds.size > 0 && (
+                  <Button variant="danger" onClick={handleBulkDelete}>
+                    🗑️ 선택 삭제 ({checkedIds.size})
+                  </Button>
+                )}
+              </div>
+              {/* 재료 검색 */}
+              <div className="relative w-full sm:w-56">
+                <input
+                  type="text"
+                  placeholder="재료명으로 검색…"
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                />
+                <span className="absolute left-2.5 top-2 text-gray-400 text-sm">🔍</span>
+                {searchQ && (
+                  <button onClick={() => setSearchQ('')} className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                )}
+              </div>
+            </div>
+          )}
+          {genError && (
+            <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{genError}</p>
+          )}
+          {/* 레시피 작성 폼 */}
+          {showForm && (
+            <Card className="!p-5 space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+                  <span>📝</span> 새 레시피
+                </h2>
+                <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+              </div>
+
+              <Input
+                label="요리 이름"
+                placeholder="예: 김치볶음밥"
+                value={recipeName}
+                onChange={e => setRecipeName(e.target.value)}
+              />
+
+              {/* ─── 필요 재료 ─── */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">필요 재료</label>
+
+                {/* 냉장고 재료 태그 선택 */}
+                {ingredients.length > 0 && (
+                  <div className="mb-3 p-3 bg-primary-50 rounded-lg border border-primary-100">
+                    <p className="text-xs text-primary-600 font-medium mb-2">🧊 냉장고에서 선택</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ingredients.map(ing => {
+                        const selected = recipeIngredients.some(r => r.name === ing.name);
+                        return (
+                          <button
+                            key={ing.id}
+                            type="button"
+                            onClick={() => handleFridgeTagToggle(ing)}
+                            className={`px-3 py-1 rounded-full text-sm font-medium border transition-all duration-150 ${
+                              selected
+                                ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+                                : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-600'
+                            }`}
+                          >
+                            {selected ? '✓ ' : ''}{ing.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 선택된 재료 목록 (수량/단위 조정 가능) */}
+                {recipeIngredients.length > 0 && (
+                  <div className="space-y-2 mb-2">
+                    {recipeIngredients.map((ing, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        {ing.fromFridge ? (
+                          <span className="flex-1 px-3 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700 font-medium">
+                            🧊 {ing.name}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder="재료명 직접 입력"
+                            value={ing.name}
+                            onChange={e => handleIngredientChange(idx, 'name', e.target.value)}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                          />
+                        )}
+                        <input
+                          type="number"
+                          placeholder="수량"
+                          value={ing.quantity}
+                          onChange={e => handleIngredientChange(idx, 'quantity', e.target.value)}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                          min="0"
+                          step="any"
+                        />
+                        <Select
+                          value={ing.unit}
+                          onChange={e => handleIngredientChange(idx, 'unit', e.target.value)}
+                          options={unitOptions}
+                          className="w-24"
+                        />
+                        <button
+                          onClick={() => handleRemoveIngredient(idx)}
+                          className="text-gray-300 hover:text-red-500 text-sm flex-shrink-0"
+                          aria-label="재료 삭제"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleAddManualIngredient}
+                  className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  + 직접 입력으로 추가
+                </button>
+
+                {recipeIngredients.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-1">냉장고 태그를 클릭하거나 직접 입력하세요.</p>
+                )}
+              </div>
+
+              {/* ─── 조리 단계 ─── */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">조리 단계</label>
+                <div className="space-y-3">
+                  {steps.map((step, idx) => (
+                    <div key={idx} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <div className="flex gap-2 items-start mb-2">
+                        <span className="mt-2 text-xs font-bold text-white bg-primary-600 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">{idx + 1}</span>
+                        <textarea
+                          value={step}
+                          onChange={e => handleStepChange(idx, e.target.value)}
+                          placeholder={`${idx + 1}단계 조리법을 입력하세요`}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none bg-white"
+                          rows={2}
+                        />
+                        <button
+                          onClick={() => handleRemoveStep(idx)}
+                          className="text-gray-300 hover:text-red-500 mt-2 text-sm flex-shrink-0"
+                          disabled={steps.length <= 1}
+                          aria-label="단계 삭제"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {/* 조리 방법 프리셋 태그 */}
+                      <div className="flex flex-wrap gap-1.5 pl-7">
+                        {COOKING_METHOD_TAGS.map(m => (
+                          <button
+                            key={m.label}
+                            type="button"
+                            onClick={() => handleMethodTagClick(idx, m.label)}
+                            className="px-2.5 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-200 hover:border-amber-300 transition-colors font-medium"
+                          >
+                            {m.emoji} {m.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddStep}
+                  className="mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  + 단계 추가
+                </button>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <Button variant="secondary" onClick={resetForm}>취소</Button>
+                <Button onClick={handleSaveRecipe} disabled={!canSave || saving}>
+                  {saving ? '저장 중…' : '저장'}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* ── 레시피 테이블 ── */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+              <span className="text-sm font-semibold text-gray-700">🗄️ 레시피 테이블</span>
+              <span className="text-xs text-gray-400">
+                {searchQ ? `검색결과 ${filteredRecipes.length}행 / 전체 ${recipes.length}행` : `총 ${recipes.length}행`}
+              </span>
+            </div>
+
+            {filteredRecipes.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-4xl mb-2">📖</p>
+                <p className="text-sm">{searchQ ? `"${searchQ}" 재료가 포함된 레시피가 없습니다.` : '등록된 레시피가 없습니다.'}</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                      <th className="px-4 py-2.5 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={toggleAllChecked}
+                          className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                        />
+                      </th>
+                      <th className="px-4 py-2.5 text-left">요리명</th>
+                      <th className="px-4 py-2.5 text-left">필요 재료</th>
+                      <th className="px-4 py-2.5 text-left">조리 단계</th>
+                      <th className="px-4 py-2.5 text-center w-24">상세</th>
+                      <th className="px-4 py-2.5 text-center w-16">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredRecipes.map((recipe, idx) => (
+                      <tr key={recipe.id} className={`hover:bg-gray-50 transition-colors ${checkedIds.has(recipe.id) ? 'bg-violet-50' : idx % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                        <td className="px-4 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={checkedIds.has(recipe.id)}
+                            onChange={() => toggleChecked(recipe.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-800">
+                          <div className="flex items-center gap-1.5">
+                            {recipe.source === 'ai' && (
+                              <span className="px-1.5 py-0.5 bg-violet-100 text-violet-600 rounded text-xs font-medium">✨AI</span>
+                            )}
+                            {recipe.name}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {recipe.ingredients.slice(0, 3).map((ing, i) => (
+                              <span key={i} className="px-1.5 py-0.5 bg-primary-50 text-primary-700 rounded text-xs">{ing.name}</span>
+                            ))}
+                            {recipe.ingredients.length > 3 && (
+                              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">+{recipe.ingredients.length - 3}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium">
+                            {recipe.steps.length}단계
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => setSelectedRecipe(recipe)}
+                            className="text-xs text-primary-600 hover:text-primary-800 font-medium hover:underline"
+                          >
+                            보기
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => handleDeleteRecipe(recipe.id)}
+                            className="text-gray-300 hover:text-red-500 transition-colors font-medium text-sm leading-none"
+                            aria-label={`${recipe.name} 삭제`}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-400 text-right">
+              {searchQ ? `검색결과 ${filteredRecipes.length}행 / 전체 ${recipes.length}행` : `총 ${recipes.length}행`}
+            </div>
+          </div>
+
+          {/* AI 재료 선택 모달 */}
+          <Modal isOpen={showAIModal} onClose={() => setShowAIModal(false)} title="✨ AI 레시피 생성" size="md">
+            <div className="space-y-4">
+              <p className="text-sm text-gray-500">사용할 재료를 선택하면 레시피 2개를 생성합니다.</p>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-700">냉장고 재료</p>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAIIngredients(
+                      selectedAIIngredients.length === ingredients.length ? [] : [...ingredients]
+                    )}
+                    className="text-xs text-violet-600 hover:text-violet-700 font-medium"
+                  >
+                    {selectedAIIngredients.length === ingredients.length ? '전체 해제' : '전체 선택'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg border border-gray-100 min-h-[60px]">
+                  {ingredients.map(ing => {
+                    const selected = selectedAIIngredients.some(i => i.id === ing.id);
+                    return (
+                      <button
+                        key={ing.id}
+                        type="button"
+                        onClick={() => toggleAIIngredient(ing)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium border transition-all duration-150 ${
+                          selected
+                            ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-violet-400 hover:text-violet-600'
+                        }`}
+                      >
+                        {selected ? '✓ ' : ''}{ing.name}
+                        <span className="text-xs ml-1 opacity-60">{ing.storage === 'frozen' ? '❄️' : '🧊'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedAIIngredients.length > 0 && (
+                  <p className="text-xs text-gray-400 mt-1.5">{selectedAIIngredients.length}개 재료 선택됨</p>
+                )}
+              </div>
+              <div className="flex gap-3 justify-end pt-1">
+                <Button variant="secondary" onClick={() => setShowAIModal(false)}>취소</Button>
+                <Button
+                  onClick={handleConfirmGenerate}
+                  disabled={selectedAIIngredients.length === 0}
+                  className="bg-violet-600 hover:bg-violet-700 focus:ring-violet-500 text-white"
+                >
+                  레시피 생성
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          {/* AI 생성 결과 팝업 */}
+          <Modal
+            isOpen={!!generatedRecipes}
+            onClose={() => setGeneratedRecipes(null)}
+            title="✨ AI 레시피 생성 완료"
+            size="lg"
+          >
+            {generatedRecipes && (
+              <div className="space-y-5">
+                {lastSelectedIngredients.length > 0 && (
+                  <div className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-3">
+                    <p className="text-xs font-semibold text-violet-500 mb-2">선택한 냉장고 재료</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {lastSelectedIngredients.map(ing => (
+                        <span key={ing.id} className="px-2.5 py-1 bg-white border border-violet-200 text-violet-700 rounded-full text-xs font-medium">
+                          {ing.name} <span className="text-violet-400">{ing.quantity}{ing.unit}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-sm text-gray-500">{generatedRecipes.length}개의 레시피가 생성되어 저장되었습니다.</p>
+                {generatedRecipes.map((recipe, ri) => (
+                  <div key={recipe.id} className={`rounded-xl border p-4 space-y-3 ${ri > 0 ? 'border-gray-100' : 'border-violet-100 bg-violet-50/30'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-violet-100 text-violet-600 rounded text-xs font-medium">✨AI</span>
+                      <h3 className="font-semibold text-gray-800">{recipe.name}</h3>
+                    </div>
+                    {/* 재료 */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1.5">필요 재료</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {recipe.ingredients.map((ing, i) => {
+                          const inFridge = ingredients.some(fi => fi.name.trim() === ing.name.trim());
+                          return (
+                            <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              inFridge ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {ing.name} {ing.quantity && `${ing.quantity}${ing.unit}`}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {/* 조리 단계 */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1.5">조리 단계</p>
+                      <ol className="space-y-1.5">
+                        {recipe.steps.map((step, i) => (
+                          <li key={i} className="flex gap-2 text-sm text-gray-700">
+                            <span className="flex-shrink-0 w-5 h-5 bg-violet-500 text-white rounded-full flex items-center justify-center text-xs font-bold mt-0.5">{i + 1}</span>
+                            <span className="leading-relaxed">{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-end pt-1">
+                  <Button onClick={() => setGeneratedRecipes(null)}>확인</Button>
+                </div>
+              </div>
+            )}
+          </Modal>
+
+          {/* 레시피 상세 모달 */}
+          <Modal
+            isOpen={!!selectedRecipe}
+            onClose={() => setSelectedRecipe(null)}
+            title={selectedRecipe ? `🍳 ${selectedRecipe.name}` : ''}
+            size="lg"
+          >
+            {selectedRecipe && (
+              <div className="space-y-5">
+                {/* 필요 재료 */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                    <span>🥗</span> 필요 재료
+                  </h3>
+                  <div className="bg-primary-50 rounded-lg p-3">
+                    <ul className="space-y-1">
+                      {selectedRecipe.ingredients.map((ing, idx) => {
+                        const inFridge = ingredients.some(
+                          fi => fi.name.trim() === ing.name.trim()
+                        );
+                        return (
+                          <li key={idx} className="flex items-center gap-2 text-sm">
+                            <span className={inFridge ? 'text-primary-600' : 'text-gray-400'}>
+                              {inFridge ? '✅' : '⬜'}
+                            </span>
+                            <span className={`${inFridge ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
+                              {ing.name} {ing.quantity && `${ing.quantity}${ing.unit}`}
+                            </span>
+                            {inFridge && <span className="text-xs text-primary-500 bg-primary-100 px-1.5 py-0.5 rounded-full">냉장고 있음</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* 조리 단계 */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                    <span>👨‍🍳</span> 조리 단계
+                  </h3>
+                  <ol className="space-y-3">
+                    {selectedRecipe.steps.map((step, idx) => (
+                      <li key={idx} className="flex gap-3">
+                        <span className="flex-shrink-0 w-7 h-7 bg-primary-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                          {idx + 1}
+                        </span>
+                        <p className="text-sm text-gray-700 pt-1 leading-relaxed">{step}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            )}
+          </Modal>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+    function App() {
+      const [activeTab, setActiveTab] = useState('ingredients');
+      const [ingredients, setIngredients] = useState([]);
+      const [recipes, setRecipes] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      // 초기 데이터 로드
+      useEffect(() => {
+        Promise.all([
+          API.get('/api/ingredients'),
+          API.get('/api/recipes'),
+        ]).then(([ingRes, recRes]) => {
+          setIngredients(ingRes.data);
+          setRecipes(recRes.data);
+        }).catch(err => {
+          setError('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.');
+          console.error(err);
+        }).finally(() => setLoading(false));
+      }, []);
+
+      // 재료 추가
+      const addIngredient = async (data) => {
+        const res = await API.post('/api/ingredients', data);
+        setIngredients(prev => [res.data, ...prev]);
+      };
+
+      // 재료 수정
+      const updateIngredient = async (id, data) => {
+        const res = await API.patch(`/api/ingredients/${id}`, data);
+        setIngredients(prev => prev.map(i => i.id === id ? res.data : i));
+      };
+
+      // 재료 삭제
+      const deleteIngredient = async (id) => {
+        await API.del(`/api/ingredients/${id}`);
+        setIngredients(prev => prev.filter(i => i.id !== id));
+      };
+
+      // 레시피 추가
+      const addRecipe = async (data) => {
+        const res = await API.post('/api/recipes', data);
+        setRecipes(prev => [res.data, ...prev]);
+      };
+
+      // 레시피 삭제
+      const deleteRecipe = async (id) => {
+        await API.del(`/api/recipes/${id}`);
+        setRecipes(prev => prev.filter(r => r.id !== id));
+      };
+
+      // AI 레시피 자동 생성
+      const generateRecipe = async ({ selectedIngredientIds, existingNames } = {}) => {
+        const res = await API.post('/api/recipes/generate', { selectedIngredientIds, existingNames });
+        const newRecipes = Array.isArray(res.data) ? res.data : [res.data];
+        setRecipes(prev => [...newRecipes, ...prev]);
+        return newRecipes;
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-amber-50 flex items-center justify-center">
+            <div className="text-center text-gray-400">
+              <p className="text-5xl mb-3 animate-pulse">🍽️</p>
+              <p className="text-sm">데이터를 불러오는 중...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (error) {
+        return (
+          <div className="min-h-screen bg-amber-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-md p-8 max-w-sm text-center">
+              <p className="text-4xl mb-3">⚠️</p>
+              <p className="text-gray-700 font-medium mb-2">서버 연결 오류</p>
+              <p className="text-sm text-gray-500 mb-4">{error}</p>
+              <code className="block bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-600 mb-4">
+                node server.js
+              </code>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700"
+              >
+                다시 시도
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-amber-50">
+          <Header activeTab={activeTab} onTabChange={setActiveTab} />
+          <main className="max-w-4xl mx-auto px-4 py-6">
+            {activeTab === 'ingredients' ? (
+              <IngredientsPage
+                ingredients={ingredients}
+                onAdd={addIngredient}
+                onUpdate={updateIngredient}
+                onDelete={deleteIngredient}
+              />
+            ) : (
+              <RecipesPage
+                recipes={recipes}
+                ingredients={ingredients}
+                onAdd={addRecipe}
+                onDelete={deleteRecipe}
+                onGenerate={generateRecipe}
+              />
+            )}
+          </main>
+          <footer className="text-center py-4 text-xs text-gray-400">
+            냉장고 매니저 &copy; 2026 &mdash; 데이터는 SQLite DB + JSON 파일로 관리됩니다.
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
