@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>익명 연봉/지출 비교</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+    @keyframes slideBar {
+      from { width: 0; }
+    }
+    .slide-bar { animation: slideBar 0.8s ease-out forwards; }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner { animation: spin 0.8s linear infinite; }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+      50% { box-shadow: 0 0 0 12px rgba(34,197,94,0); }
+    }
+    .pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // ========================================
+    // API / Data Layer
+    // ========================================
+
+    async function submitData(formData) {
+      const body = {
+        salary:        Number(formData.salary),
+        job_category:  formData.job,
+        experience:    formData.experience,
+        region:        formData.region || undefined,
+        company_size:  formData.companySize || undefined,
+        food:          Number(formData.expenses.food) || 0,
+        housing:       Number(formData.expenses.housing) || 0,
+        transport:     Number(formData.expenses.transport) || 0,
+        subscription:  Number(formData.expenses.subscription) || 0,
+        shopping:      Number(formData.expenses.shopping) || 0,
+        health:        Number(formData.expenses.health) || 0,
+        leisure:       Number(formData.expenses.leisure) || 0,
+        other:         Number(formData.expenses.other) || 0,
+      };
+
+      const res = await fetch('/api/income', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function fetchMyEntry(id) {
+      const res = await fetch(`/api/income/${id}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function updateEntry(id, formData) {
+      const body = {
+        salary:       Number(formData.salary),
+        job_category: formData.jobCategory || formData.job,
+        experience:   formData.experience,
+        region:       formData.region || undefined,
+        company_size: formData.companySize || undefined,
+        food:         Number(formData.food) || 0,
+        housing:      Number(formData.housing) || 0,
+        transport:    Number(formData.transport) || 0,
+        subscription: Number(formData.subscription) || 0,
+        shopping:     Number(formData.shopping) || 0,
+        health:       Number(formData.health) || 0,
+        leisure:      Number(formData.leisure) || 0,
+        other:        Number(formData.other) || 0,
+      };
+      const res = await fetch(`/api/income/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function deleteEntry(id) {
+      const res = await fetch(`/api/income/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+    }
+
+    // ========================================
+    // localStorage Helpers
+    // ========================================
+
+    const MY_ENTRY_KEY = 'my_income_entry_id';
+    function saveMyEntryId(id) { localStorage.setItem(MY_ENTRY_KEY, id); }
+    function getMyEntryId() { return localStorage.getItem(MY_ENTRY_KEY); }
+    function clearMyEntryId() { localStorage.removeItem(MY_ENTRY_KEY); }
+
+    // ========================================
+    // Mock Data Generator
+    // ========================================
+
+    function generateMockResult(formData) {
+      const salary = formData.salary;
+      const distribution = [
+        { label: '~200만원', count: 45, min: 0, max: 200 },
+        { label: '200~300', count: 120, min: 200, max: 300 },
+        { label: '300~400', count: 180, min: 300, max: 400 },
+        { label: '400~500', count: 95, min: 400, max: 500 },
+        { label: '500~600', count: 40, min: 500, max: 600 },
+        { label: '600+', count: 20, min: 600, max: 9999 },
+      ];
+      const total = distribution.reduce((s, d) => s + d.count, 0);
+      const below = distribution.filter(d => d.max <= salary).reduce((s, d) => s + d.count, 0);
+      const percentile = Math.max(1, Math.min(99, Math.round((1 - below / total) * 100)));
+
+      return {
+        myPercentile: percentile,
+        mySalary: salary,
+        avgSalary: 342,
+        distribution,
+        categoryAverages: {
+          food: 32, housing: 55, transport: 12, subscription: 4,
+          shopping: 18, health: 8, leisure: 15, other: 10,
+        },
+        jobAverages: [
+          { job: '개발/IT', avg: 420 }, { job: '금융/회계', avg: 390 },
+          { job: '마케팅/기획', avg: 320 }, { job: '디자인', avg: 300 },
+          { job: '영업', avg: 310 }, { job: '의료/복지', avg: 280 },
+          { job: '교육', avg: 260 }, { job: '제조/생산', avg: 270 },
+          { job: '서비스업', avg: 230 }, { job: '기타', avg: 280 },
+        ],
+        regionAverages: [
+          { region: '서울', avg: 410 },
+          { region: '경기/인천', avg: 360 },
+          { region: '부산', avg: 310 },
+          { region: '대전', avg: 300 },
+          { region: '대구', avg: 295 },
+        ],
+        companySizeAverages: [
+          { size: '대기업 (1000명+)', avg: 520 },
+          { size: '공공기관/공무원', avg: 380 },
+          { size: '중견기업 (300~999명)', avg: 360 },
+          { size: '스타트업', avg: 340 },
+          { size: '중소기업 (10~299명)', avg: 270 },
+          { size: '프리랜서/자영업', avg: 290 },
+        ],
+      };
+    }
+
+    // ========================================
+    // Design System Components
+    // ========================================
+
+    function Button({ children, variant = 'primary', size = 'md', disabled = false, onClick, className = '', type = 'button' }) {
+      const base = 'font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+      const variants = {
+        primary: 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white focus:ring-green-400 shadow-md hover:shadow-lg',
+        secondary: 'bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 focus:ring-gray-300',
+        ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 focus:ring-gray-200',
+        'outline-blue': 'bg-white border-2 border-blue-400 text-blue-600 hover:bg-blue-50 focus:ring-blue-300',
+        'outline-red': 'bg-white border-2 border-red-400 text-red-600 hover:bg-red-50 focus:ring-red-300',
+      };
+      const sizes = {
+        sm: 'px-4 py-2 text-sm',
+        md: 'px-6 py-3 text-base',
+        lg: 'px-8 py-4 text-lg',
+      };
+      return (
+        <button type={type} disabled={disabled} onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, type = 'text', value, onChange, placeholder, error, disabled = false, className = '', icon }) {
+      return (
+        <div className={className}>
+          {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
+          <div className="relative">
+            {icon && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg select-none">{icon}</span>}
+            <input
+              type={type}
+              value={value}
+              onChange={onChange}
+              placeholder={placeholder}
+              disabled={disabled}
+              className={`w-full rounded-xl border ${error ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-green-400'}
+                focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-200
+                ${icon ? 'pl-10' : 'pl-4'} pr-4 py-3 text-gray-800 placeholder-gray-400
+                disabled:bg-gray-50 disabled:text-gray-400`}
+            />
+          </div>
+          {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+        </div>
+      );
+    }
+
+    function Select({ label, value, onChange, options, className = '' }) {
+      return (
+        <div className={className}>
+          {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
+          <select
+            value={value}
+            onChange={onChange}
+            className="w-full rounded-xl border border-gray-200 focus:ring-2 focus:ring-green-400 focus:border-transparent
+              focus:outline-none transition-all duration-200 px-4 py-3 text-gray-800 bg-white appearance-none
+              bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M2%204l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')]
+              bg-no-repeat bg-[right_1rem_center]"
+          >
+            {options.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm p-6 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Spinner() {
+      return (
+        <div className="spinner w-8 h-8 border-4 border-green-200 border-t-green-500 rounded-full" />
+      );
+    }
+
+    // ========================================
+    // Expense Category Config
+    // ========================================
+
+    const EXPENSE_CATEGORIES = [
+      { key: 'food', label: '식비', icon: '🍚' },
+      { key: 'housing', label: '주거비 (월세/관리비)', icon: '🏠' },
+      { key: 'transport', label: '교통비', icon: '🚇' },
+      { key: 'subscription', label: '구독료 (OTT/앱 등)', icon: '📱' },
+      { key: 'shopping', label: '쇼핑/의류', icon: '👗' },
+      { key: 'health', label: '의료/건강', icon: '🏥' },
+      { key: 'leisure', label: '여가/취미', icon: '🎮' },
+      { key: 'other', label: '기타 지출', icon: '💸' },
+    ];
+
+    const JOB_OPTIONS = [
+      { value: '개발/IT', label: '개발/IT' },
+      { value: '디자인', label: '디자인' },
+      { value: '마케팅/기획', label: '마케팅/기획' },
+      { value: '영업', label: '영업' },
+      { value: '금융/회계', label: '금융/회계' },
+      { value: '제조/생산', label: '제조/생산' },
+      { value: '의료/복지', label: '의료/복지' },
+      { value: '교육', label: '교육' },
+      { value: '서비스업', label: '서비스업' },
+      { value: '기타', label: '기타' },
+    ];
+
+    const EXPERIENCE_OPTIONS = [
+      { value: '1년 미만', label: '1년 미만' },
+      { value: '1~3년', label: '1~3년' },
+      { value: '3~5년', label: '3~5년' },
+      { value: '5~10년', label: '5~10년' },
+      { value: '10년 이상', label: '10년 이상' },
+    ];
+
+    const REGION_OPTIONS = [
+      { value: '', label: '선택 안함' },
+      { value: '서울', label: '서울' },
+      { value: '경기/인천', label: '경기/인천' },
+      { value: '부산', label: '부산' },
+      { value: '대구', label: '대구' },
+      { value: '광주', label: '광주' },
+      { value: '대전', label: '대전' },
+      { value: '울산', label: '울산' },
+      { value: '세종', label: '세종' },
+      { value: '강원', label: '강원' },
+      { value: '충북', label: '충북' },
+      { value: '충남', label: '충남' },
+      { value: '전북', label: '전북' },
+      { value: '전남', label: '전남' },
+      { value: '경북', label: '경북' },
+      { value: '경남', label: '경남' },
+      { value: '제주', label: '제주' },
+    ];
+
+    const COMPANY_SIZE_OPTIONS = [
+      { value: '', label: '선택 안함' },
+      { value: '대기업 (1000명+)', label: '대기업 (1000명+)' },
+      { value: '중견기업 (300~999명)', label: '중견기업 (300~999명)' },
+      { value: '중소기업 (10~299명)', label: '중소기업 (10~299명)' },
+      { value: '스타트업', label: '스타트업' },
+      { value: '프리랜서/자영업', label: '프리랜서/자영업' },
+      { value: '공공기관/공무원', label: '공공기관/공무원' },
+      { value: '기타', label: '기타' },
+    ];
+
+    // ========================================
+    // Page: Input Form
+    // ========================================
+
+    function InputForm({ onSubmit, onUpdate, statsText, editMode, editData, onCancelEdit, myEntryId, onEditClick, onDeleteClick }) {
+      const [salary, setSalary] = useState('');
+      const [job, setJob] = useState('개발/IT');
+      const [experience, setExperience] = useState('1~3년');
+      const [region, setRegion] = useState('');
+      const [companySize, setCompanySize] = useState('');
+      const [expenses, setExpenses] = useState({
+        food: '', housing: '', transport: '', subscription: '',
+        shopping: '', health: '', leisure: '', other: '',
+      });
+      const [errors, setErrors] = useState({});
+      const [showBanner, setShowBanner] = useState(!!myEntryId && !editMode);
+      const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+      // Pre-fill form when entering edit mode
+      useEffect(() => {
+        if (editMode && editData) {
+          setSalary(String(editData.salary || ''));
+          setJob(editData.job_category || editData.job || '개발/IT');
+          setExperience(editData.experience || '1~3년');
+          setRegion(editData.region || '');
+          setCompanySize(editData.company_size || editData.companySize || '');
+          setExpenses({
+            food: editData.food ? String(editData.food) : '',
+            housing: editData.housing ? String(editData.housing) : '',
+            transport: editData.transport ? String(editData.transport) : '',
+            subscription: editData.subscription ? String(editData.subscription) : '',
+            shopping: editData.shopping ? String(editData.shopping) : '',
+            health: editData.health ? String(editData.health) : '',
+            leisure: editData.leisure ? String(editData.leisure) : '',
+            other: editData.other ? String(editData.other) : '',
+          });
+          setShowBanner(false);
+        }
+      }, [editMode, editData]);
+
+      // Update banner visibility when myEntryId changes
+      useEffect(() => {
+        if (!editMode) {
+          setShowBanner(!!myEntryId);
+        }
+      }, [myEntryId, editMode]);
+
+      const handleExpenseChange = useCallback((key, value) => {
+        setExpenses(prev => ({ ...prev, [key]: value }));
+      }, []);
+
+      const validate = useCallback(() => {
+        const newErrors = {};
+        if (!salary || Number(salary) <= 0) {
+          newErrors.salary = '월 급여를 입력해 주세요';
+        }
+        const hasExpense = Object.values(expenses).some(v => v !== '' && Number(v) > 0);
+        if (!hasExpense) {
+          newErrors.expenses = '최소 1개 지출 항목을 입력해 주세요';
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+      }, [salary, expenses]);
+
+      const handleSubmit = useCallback((e) => {
+        e.preventDefault();
+        if (!validate()) return;
+        const expenseData = {};
+        Object.entries(expenses).forEach(([k, v]) => {
+          if (v !== '' && Number(v) > 0) expenseData[k] = Number(v);
+        });
+
+        if (editMode) {
+          // Build flat formData for updateEntry
+          onUpdate({
+            salary: Number(salary),
+            job,
+            jobCategory: job,
+            experience,
+            region,
+            companySize,
+            food: expenses.food,
+            housing: expenses.housing,
+            transport: expenses.transport,
+            subscription: expenses.subscription,
+            shopping: expenses.shopping,
+            health: expenses.health,
+            leisure: expenses.leisure,
+            other: expenses.other,
+            // Also include expenses object for ResultsView
+            expenses: expenseData,
+          });
+        } else {
+          onSubmit({
+            salary: Number(salary),
+            job,
+            experience,
+            region,
+            companySize,
+            expenses: expenseData,
+          });
+        }
+      }, [salary, job, experience, region, companySize, expenses, validate, onSubmit, onUpdate, editMode]);
+
+      const handleNewEntry = useCallback(() => {
+        setShowBanner(false);
+      }, []);
+
+      const handleDeleteFromBanner = useCallback(() => {
+        setShowDeleteConfirm(true);
+      }, []);
+
+      const handleConfirmDelete = useCallback(() => {
+        setShowDeleteConfirm(false);
+        onDeleteClick();
+      }, [onDeleteClick]);
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-6 fade-in">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              <span className="text-4xl">💰</span> 익명 연봉·지출 비교
+              {editMode && <span className="text-lg text-blue-500 ml-2">(수정 모드)</span>}
+            </h1>
+            <p className="text-gray-500 text-lg">익명으로 제출하고 내 위치를 확인하세요</p>
+            {statsText && <p className="text-gray-400 text-sm mt-1">{statsText}</p>}
+          </div>
+
+          {/* Previous Entry Banner */}
+          {showBanner && !editMode && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 fade-in">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <p className="text-sm text-blue-800 font-medium flex-1">
+                  이전에 제출한 데이터가 있습니다.
+                </p>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Button variant="outline-blue" size="sm" onClick={onEditClick}>
+                    수정하기
+                  </Button>
+                  <Button variant="outline-red" size="sm" onClick={handleDeleteFromBanner}>
+                    삭제하기
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={handleNewEntry}
+                    className="text-sm text-gray-500 hover:text-gray-700 underline ml-1"
+                  >
+                    새로 입력
+                  </button>
+                </div>
+              </div>
+
+              {/* Inline delete confirmation */}
+              {showDeleteConfirm && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-700 mb-2">정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline-red" size="sm" onClick={handleConfirmDelete}>
+                      삭제 확인
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section 1: 기본 정보 */}
+          <Card>
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-sm font-bold">1</span>
+              기본 정보
+            </h2>
+            <div className="space-y-4">
+              <Input
+                label="월 세전 급여 (만원)"
+                type="number"
+                value={salary}
+                onChange={e => setSalary(e.target.value)}
+                placeholder="예: 350"
+                error={errors.salary}
+                icon="💵"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select
+                  label="직군"
+                  value={job}
+                  onChange={e => setJob(e.target.value)}
+                  options={JOB_OPTIONS}
+                />
+                <Select
+                  label="연차"
+                  value={experience}
+                  onChange={e => setExperience(e.target.value)}
+                  options={EXPERIENCE_OPTIONS}
+                />
+                <Select
+                  label="거주 지역"
+                  value={region}
+                  onChange={e => setRegion(e.target.value)}
+                  options={REGION_OPTIONS}
+                />
+                <Select
+                  label="직장 규모"
+                  value={companySize}
+                  onChange={e => setCompanySize(e.target.value)}
+                  options={COMPANY_SIZE_OPTIONS}
+                />
+              </div>
+            </div>
+          </Card>
+
+          {/* Section 2: 월 지출 항목 */}
+          <Card>
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-sm font-bold">2</span>
+              월 지출 항목 (만원 단위)
+            </h2>
+            {errors.expenses && (
+              <p className="mb-3 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{errors.expenses}</p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {EXPENSE_CATEGORIES.map(cat => (
+                <Input
+                  key={cat.key}
+                  label={`${cat.icon} ${cat.label}`}
+                  type="number"
+                  value={expenses[cat.key]}
+                  onChange={e => handleExpenseChange(cat.key, e.target.value)}
+                  placeholder="0"
+                />
+              ))}
+            </div>
+          </Card>
+
+          {/* Submit */}
+          <Button type="submit" variant="primary" size="lg" className="w-full text-center justify-center">
+            {editMode ? '수정 저장하기' : '제출하고 비교하기 →'}
+          </Button>
+
+          {/* Cancel edit link */}
+          {editMode && (
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                취소
+              </button>
+            </div>
+          )}
+        </form>
+      );
+    }
+
+    // ========================================
+    // Page: Results
+    // ========================================
+
+    function PercentileCard({ percentile, mySalary, avgSalary }) {
+      const badgeColor = percentile <= 30
+        ? 'bg-green-100 text-green-700 border-green-200'
+        : percentile <= 60
+        ? 'bg-amber-100 text-amber-700 border-amber-200'
+        : 'bg-gray-100 text-gray-600 border-gray-200';
+
+      const gaugeColor = percentile <= 30
+        ? 'from-green-400 to-emerald-500'
+        : percentile <= 60
+        ? 'from-amber-400 to-yellow-500'
+        : 'from-gray-400 to-gray-500';
+
+      const gaugePercent = 100 - percentile;
+
+      return (
+        <Card className="text-center">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">내 위치</h3>
+          <div className="mb-4">
+            <span className={`inline-block text-5xl font-extrabold px-6 py-3 rounded-2xl border-2 ${badgeColor} pulse-glow`}>
+              상위 {percentile}%
+            </span>
+          </div>
+          <div className="flex justify-center gap-8 text-sm text-gray-600 mb-5">
+            <div>
+              <span className="block text-2xl font-bold text-gray-800">{mySalary}만원</span>
+              내 급여
+            </div>
+            <div className="border-l border-gray-200" />
+            <div>
+              <span className="block text-2xl font-bold text-gray-400">{avgSalary}만원</span>
+              전체 평균
+            </div>
+          </div>
+          {/* Gauge bar */}
+          <div className="relative w-full h-5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`slide-bar h-full bg-gradient-to-r ${gaugeColor} rounded-full relative`}
+              style={{ width: `${gaugePercent}%` }}
+            >
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full border-2 border-current shadow-md translate-x-1/2" />
+            </div>
+          </div>
+          <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <span>하위</span>
+            <span>상위</span>
+          </div>
+        </Card>
+      );
+    }
+
+    function DistributionCard({ distribution, mySalary }) {
+      const maxCount = Math.max(...distribution.map(d => d.count));
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">📊 급여 분포</h3>
+          <div className="space-y-3">
+            {distribution.map(bucket => {
+              const isMyBucket = mySalary >= bucket.min && mySalary < bucket.max;
+              const widthPct = Math.max(8, (bucket.count / maxCount) * 100);
+              return (
+                <div key={bucket.label} className="flex items-center gap-3">
+                  <span className={`text-sm w-20 text-right flex-shrink-0 ${isMyBucket ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                    {bucket.label}
+                  </span>
+                  <div className="flex-1 relative">
+                    <div
+                      className={`slide-bar h-8 rounded-lg flex items-center px-3 ${isMyBucket
+                        ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                      }`}
+                      style={{ width: `${widthPct}%` }}
+                    >
+                      <span className="text-xs font-semibold whitespace-nowrap">{bucket.count}명</span>
+                    </div>
+                  </div>
+                  {isMyBucket && <span className="text-green-600 text-sm font-bold flex-shrink-0">← 내 위치</span>}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      );
+    }
+
+    function CategoryComparisonCard({ myExpenses, categoryAverages }) {
+      const filledCategories = EXPENSE_CATEGORIES.filter(cat => myExpenses[cat.key]);
+      if (filledCategories.length === 0) return null;
+
+      const maxVal = Math.max(
+        ...filledCategories.map(cat => Math.max(myExpenses[cat.key] || 0, categoryAverages[cat.key] || 0))
+      );
+
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">📋 지출 카테고리 비교</h3>
+          <div className="flex items-center gap-4 mb-4 text-sm">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500 inline-block" /> 내 지출</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-300 inline-block" /> 전체 평균</span>
+          </div>
+          <div className="space-y-4">
+            {filledCategories.map(cat => {
+              const myVal = myExpenses[cat.key] || 0;
+              const avgVal = categoryAverages[cat.key] || 0;
+              const myWidth = maxVal > 0 ? Math.max(4, (myVal / maxVal) * 100) : 0;
+              const avgWidth = maxVal > 0 ? Math.max(4, (avgVal / maxVal) * 100) : 0;
+              const diff = myVal - avgVal;
+
+              return (
+                <div key={cat.key}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-700">{cat.icon} {cat.label.split(' (')[0]}</span>
+                    <span className={`text-xs font-semibold ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-blue-500' : 'text-gray-400'}`}>
+                      {diff > 0 ? `+${diff}만원` : diff < 0 ? `${diff}만원` : '동일'}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="slide-bar h-5 bg-blue-500 rounded" style={{ width: `${myWidth}%` }} />
+                      <span className="text-xs text-gray-500 flex-shrink-0">{myVal}만원</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="slide-bar h-5 bg-gray-200 rounded" style={{ width: `${avgWidth}%` }} />
+                      <span className="text-xs text-gray-400 flex-shrink-0">{avgVal}만원</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      );
+    }
+
+    function JobAverageCard({ jobAverages, myJob }) {
+      const sorted = [...jobAverages].sort((a, b) => b.avg - a.avg);
+      const maxAvg = sorted[0]?.avg || 1;
+
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">💼 직군별 평균 급여</h3>
+          <div className="space-y-2.5">
+            {sorted.map(item => {
+              const isMyJob = item.job === myJob;
+              const widthPct = Math.max(10, (item.avg / maxAvg) * 100);
+              return (
+                <div key={item.job} className="flex items-center gap-3">
+                  <span className={`text-sm w-24 text-right flex-shrink-0 ${isMyJob ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                    {item.job}
+                  </span>
+                  <div className="flex-1">
+                    <div
+                      className={`slide-bar h-7 rounded-lg flex items-center px-3 ${isMyJob
+                        ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                      }`}
+                      style={{ width: `${widthPct}%` }}
+                    >
+                      <span className="text-xs font-semibold whitespace-nowrap">{item.avg}만원</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      );
+    }
+
+    function RegionAverageCard({ regionAverages, myRegion }) {
+      const maxAvg = Math.max(...regionAverages.map(r => r.avg));
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">🗺️ 거주 지역별 평균 급여 (Top 5)</h3>
+          <div className="space-y-2.5">
+            {regionAverages.map(item => {
+              const isMyRegion = item.region === myRegion;
+              const widthPct = Math.max(10, (item.avg / maxAvg) * 100);
+              return (
+                <div key={item.region} className="flex items-center gap-3">
+                  <span className={`text-sm w-20 text-right flex-shrink-0 ${isMyRegion ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                    {item.region}
+                  </span>
+                  <div className="flex-1">
+                    <div
+                      className={`slide-bar h-7 rounded-lg flex items-center px-3 ${isMyRegion
+                        ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                      }`}
+                      style={{ width: `${widthPct}%` }}
+                    >
+                      <span className="text-xs font-semibold whitespace-nowrap">{item.avg}만원</span>
+                    </div>
+                  </div>
+                  {isMyRegion && <span className="text-green-600 text-sm font-bold flex-shrink-0">← 내 지역</span>}
+                </div>
+              );
+            })}
+          </div>
+          {myRegion && !regionAverages.some(r => r.region === myRegion) && (
+            <p className="mt-3 text-sm text-gray-400">* 선택하신 지역({myRegion})은 Top 5에 포함되지 않습니다.</p>
+          )}
+        </Card>
+      );
+    }
+
+    function CompanySizeAverageCard({ companySizeAverages, myCompanySize }) {
+      const sorted = [...companySizeAverages].sort((a, b) => b.avg - a.avg);
+      const maxAvg = sorted[0]?.avg || 1;
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">🏢 직장 규모별 평균 급여</h3>
+          <div className="space-y-2.5">
+            {sorted.map(item => {
+              const isMySize = item.size === myCompanySize;
+              const widthPct = Math.max(10, (item.avg / maxAvg) * 100);
+              return (
+                <div key={item.size} className="flex items-center gap-3">
+                  <span className={`text-sm w-28 text-right flex-shrink-0 ${isMySize ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                    {item.size.split(' (')[0]}
+                  </span>
+                  <div className="flex-1">
+                    <div
+                      className={`slide-bar h-7 rounded-lg flex items-center px-3 ${isMySize
+                        ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                      }`}
+                      style={{ width: `${widthPct}%` }}
+                    >
+                      <span className="text-xs font-semibold whitespace-nowrap">{item.avg}만원</span>
+                    </div>
+                  </div>
+                  {isMySize && <span className="text-green-600 text-sm font-bold flex-shrink-0">← 내 규모</span>}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      );
+    }
+
+    function SavingTipsCard({ myExpenses, categoryAverages }) {
+      const tips = useMemo(() => {
+        const result = [];
+        const sorted = Object.entries(myExpenses)
+          .filter(([, v]) => v > 0)
+          .sort(([, a], [, b]) => b - a);
+
+        const catMap = {};
+        EXPENSE_CATEGORIES.forEach(c => { catMap[c.key] = c; });
+
+        const tipData = {
+          food: { tip: '주 2회 도시락을 싸면 월 8~10만원 절약할 수 있어요. 장보기 앱으로 할인 상품을 노려보세요!', alt: '식비가 평균 이하네요. 건강한 식습관을 유지하면서 잘 관리하고 계시네요.' },
+          housing: { tip: '공과금 절약 앱이나 에너지 절약 습관으로 관리비를 줄여보세요. 이사 시 월세 협상도 고려해보세요.', alt: '주거비를 잘 관리하고 계시네요!' },
+          transport: { tip: '정기권이나 자전거 출퇴근을 고려해보세요. 카풀 서비스도 좋은 대안이에요.', alt: '교통비가 효율적이네요. 좋은 습관이에요!' },
+          subscription: { tip: '사용하지 않는 구독 서비스를 정리해보세요. 가족/친구와 공유 요금제를 활용하면 비용을 크게 줄일 수 있어요.', alt: '구독료를 잘 관리하고 계시네요.' },
+          shopping: { tip: '충동구매를 줄이려면 "24시간 룰"을 적용해보세요. 위시리스트에 담아두고 하루 뒤에 결정하면 불필요한 지출이 줄어요.', alt: '쇼핑 지출이 적절한 수준이에요.' },
+          health: { tip: '정기 건강검진과 예방 관리로 장기적인 의료비를 줄일 수 있어요. 실비보험도 확인해보세요.', alt: '건강 관리에 적절히 투자하고 계시네요.' },
+          leisure: { tip: '무료/저가 문화 이벤트나 공공시설을 활용해보세요. 취미 커뮤니티에서 장비 공유도 좋은 방법이에요.', alt: '여가 활동에 균형 잡힌 지출을 하고 계시네요.' },
+          other: { tip: '기타 지출을 좀 더 세분화해서 추적해보세요. 어디에 쓰는지 파악하면 절약 포인트를 찾기 쉬워져요.', alt: '기타 지출을 합리적으로 관리하고 계시네요.' },
+        };
+
+        sorted.slice(0, 3).forEach(([key, val]) => {
+          const cat = catMap[key];
+          const avg = categoryAverages[key] || 0;
+          const isAbove = val > avg;
+          const data = tipData[key];
+          if (data) {
+            result.push({
+              icon: cat.icon,
+              label: cat.label.split(' (')[0],
+              tip: isAbove ? data.tip : data.alt,
+              isWarning: isAbove,
+            });
+          }
+        });
+        return result;
+      }, [myExpenses, categoryAverages]);
+
+      if (tips.length === 0) return null;
+
+      return (
+        <Card>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">💡 절약 팁</h3>
+          <div className="space-y-3">
+            {tips.map((tip, i) => (
+              <div key={i} className={`p-4 rounded-xl border ${tip.isWarning ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl flex-shrink-0">{tip.icon}</span>
+                  <div>
+                    <span className={`text-sm font-bold ${tip.isWarning ? 'text-amber-700' : 'text-green-700'}`}>
+                      {tip.label} {tip.isWarning ? '- 평균보다 높아요' : '- 잘 관리 중'}
+                    </span>
+                    <p className="text-sm text-gray-600 mt-1">{tip.tip}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      );
+    }
+
+    function ResultsView({ result, formData, onReset, onEditFromResults, onDeleteFromResults, myEntryId }) {
+      const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+      return (
+        <div className="space-y-6 fade-in">
+          <div className="text-center mb-4">
+            <h1 className="text-2xl font-bold text-gray-800">📊 분석 결과</h1>
+            <p className="text-gray-500 mt-1">
+              {formData.job} / {formData.experience}
+              {formData.region ? ` / ${formData.region}` : ''}
+              {formData.companySize ? ` / ${formData.companySize.split(' (')[0]}` : ''}
+              {' '}기준
+            </p>
+          </div>
+
+          <PercentileCard
+            percentile={result.myPercentile}
+            mySalary={result.mySalary}
+            avgSalary={result.avgSalary}
+          />
+
+          <DistributionCard
+            distribution={result.distribution}
+            mySalary={result.mySalary}
+          />
+
+          <CategoryComparisonCard
+            myExpenses={formData.expenses}
+            categoryAverages={result.categoryAverages}
+          />
+
+          <JobAverageCard
+            jobAverages={result.jobAverages}
+            myJob={formData.job}
+          />
+
+          <RegionAverageCard
+            regionAverages={result.regionAverages}
+            myRegion={formData.region}
+          />
+
+          <CompanySizeAverageCard
+            companySizeAverages={result.companySizeAverages}
+            myCompanySize={formData.companySize}
+          />
+
+          <SavingTipsCard
+            myExpenses={formData.expenses}
+            categoryAverages={result.categoryAverages}
+          />
+
+          {/* Edit / Delete buttons for own entry */}
+          {myEntryId && (
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <Button variant="outline-blue" size="sm" className="flex-1" onClick={onEditFromResults}>
+                  ✏️ 내 정보 수정
+                </Button>
+                <Button variant="outline-red" size="sm" className="flex-1" onClick={() => setShowDeleteConfirm(true)}>
+                  🗑️ 내 데이터 삭제
+                </Button>
+              </div>
+
+              {/* Inline delete confirmation */}
+              {showDeleteConfirm && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl fade-in">
+                  <p className="text-sm text-red-700 mb-3">정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline-red" size="sm" onClick={onDeleteFromResults}>
+                      삭제 확인
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button variant="secondary" size="lg" className="w-full" onClick={onReset}>
+            ← 다시 입력하기
+          </Button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Loading View
+    // ========================================
+
+    function LoadingView() {
+      return (
+        <div className="flex flex-col items-center justify-center py-32 fade-in">
+          <Spinner />
+          <p className="mt-4 text-lg text-gray-500 font-medium">분석 중...</p>
+          <p className="mt-1 text-sm text-gray-400">익명 데이터를 기반으로 비교하고 있어요</p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // App Component
+    // ========================================
+
+    function App() {
+      const [view, setView] = useState('form'); // 'form' | 'loading' | 'results'
+      const [result, setResult] = useState(null);
+      const [formData, setFormData] = useState(null);
+      const [statsText, setStatsText] = useState('');
+      const [fallbackBanner, setFallbackBanner] = useState(false);
+      const [editMode, setEditMode] = useState(false);
+      const [editData, setEditData] = useState(null);
+      const [myEntryId, setMyEntryId] = useState(getMyEntryId());
+
+      const refreshStats = useCallback(() => {
+        fetch('/api/income/stats')
+          .then(r => r.json())
+          .then(json => {
+            if (json.success && json.data.total_count > 0) {
+              setStatsText(`현재 ${json.data.total_count}명이 참여했습니다 · 평균 ${json.data.avg_salary}만원`);
+            }
+          })
+          .catch(() => {});
+      }, []);
+
+      useEffect(() => {
+        refreshStats();
+      }, [refreshStats]);
+
+      const handleSubmit = useCallback(async (data) => {
+        setFormData(data);
+        setView('loading');
+        setFallbackBanner(false);
+        try {
+          const res = await submitData(data);
+          // Save the entry ID from the response
+          if (res.entryId) {
+            saveMyEntryId(res.entryId);
+            setMyEntryId(res.entryId);
+          }
+          setResult(res);
+          setView('results');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          // Fallback to mock data when server is unavailable
+          const mockRes = generateMockResult(data);
+          setResult(mockRes);
+          setFallbackBanner(true);
+          setView('results');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, []);
+
+      const handleUpdate = useCallback(async (data) => {
+        const id = getMyEntryId();
+        if (!id) return;
+        setView('loading');
+        setFallbackBanner(false);
+        try {
+          const res = await updateEntry(id, data);
+          // Keep formData in the format ResultsView expects
+          setFormData({
+            salary: data.salary,
+            job: data.job || data.jobCategory,
+            experience: data.experience,
+            region: data.region,
+            companySize: data.companySize,
+            expenses: data.expenses,
+          });
+          if (res.entryId) {
+            saveMyEntryId(res.entryId);
+            setMyEntryId(res.entryId);
+          }
+          setResult(res);
+          setEditMode(false);
+          setEditData(null);
+          setView('results');
+          refreshStats();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          // Fallback to mock data
+          const mockRes = generateMockResult({ salary: data.salary });
+          setFormData({
+            salary: data.salary,
+            job: data.job || data.jobCategory,
+            experience: data.experience,
+            region: data.region,
+            companySize: data.companySize,
+            expenses: data.expenses,
+          });
+          setResult(mockRes);
+          setFallbackBanner(true);
+          setEditMode(false);
+          setEditData(null);
+          setView('results');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, [refreshStats]);
+
+      const handleEditClick = useCallback(async () => {
+        const id = getMyEntryId();
+        if (!id) return;
+        try {
+          const entry = await fetchMyEntry(id);
+          setEditData(entry);
+          setEditMode(true);
+          setView('form');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          alert('이전 데이터를 불러올 수 없습니다. 새로 입력해 주세요.');
+          clearMyEntryId();
+          setMyEntryId(null);
+        }
+      }, []);
+
+      const handleDeleteClick = useCallback(async () => {
+        const id = getMyEntryId();
+        if (!id) return;
+        try {
+          await deleteEntry(id);
+        } catch (err) {
+          // Ignore errors (entry may already be gone)
+        }
+        clearMyEntryId();
+        setMyEntryId(null);
+        setResult(null);
+        setFormData(null);
+        setEditMode(false);
+        setEditData(null);
+        setView('form');
+        refreshStats();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, [refreshStats]);
+
+      const handleCancelEdit = useCallback(() => {
+        setEditMode(false);
+        setEditData(null);
+        // If we have results, go back to results view; otherwise stay on form
+        if (result && formData) {
+          setView('results');
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, [result, formData]);
+
+      const handleEditFromResults = useCallback(async () => {
+        const id = getMyEntryId();
+        if (!id) return;
+        try {
+          const entry = await fetchMyEntry(id);
+          setEditData(entry);
+          setEditMode(true);
+          setView('form');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          // If fetch fails, pre-fill from current formData
+          if (formData) {
+            setEditData({
+              salary: formData.salary,
+              job_category: formData.job,
+              experience: formData.experience,
+              region: formData.region,
+              company_size: formData.companySize,
+              ...formData.expenses,
+            });
+            setEditMode(true);
+            setView('form');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }
+      }, [formData]);
+
+      const handleReset = useCallback(() => {
+        setView('form');
+        setResult(null);
+        setFormData(null);
+        setFallbackBanner(false);
+        setEditMode(false);
+        setEditData(null);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, []);
+
+      return (
+        <div className="bg-gradient-to-br from-slate-50 to-green-50 min-h-screen">
+          <div className="max-w-2xl mx-auto px-4 py-8">
+            {fallbackBanner && view === 'results' && (
+              <div className="mb-4 px-4 py-3 bg-yellow-50 border border-yellow-300 rounded-xl text-sm text-yellow-800 text-center fade-in">
+                서버에 연결할 수 없어 샘플 데이터로 표시합니다
+              </div>
+            )}
+            {view === 'form' && (
+              <InputForm
+                onSubmit={handleSubmit}
+                onUpdate={handleUpdate}
+                statsText={statsText}
+                editMode={editMode}
+                editData={editData}
+                onCancelEdit={handleCancelEdit}
+                myEntryId={myEntryId}
+                onEditClick={handleEditClick}
+                onDeleteClick={handleDeleteClick}
+              />
+            )}
+            {view === 'loading' && <LoadingView />}
+            {view === 'results' && result && formData && (
+              <ResultsView
+                result={result}
+                formData={formData}
+                onReset={handleReset}
+                onEditFromResults={handleEditFromResults}
+                onDeleteFromResults={handleDeleteClick}
+                myEntryId={myEntryId}
+              />
+            )}
+
+            {/* Footer */}
+            <div className="text-center mt-12 mb-4 text-xs text-gray-400">
+              <p>모든 데이터는 익명으로 처리되며 개인 식별 정보를 수집하지 않습니다.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

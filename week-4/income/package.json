@@ -1,0 +1,1 @@
+{"name":"income-compare","version":"1.0.0","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"^5.1.0","cors":"^2.8.5","dotenv":"^16.5.0","pg":"^8.13.3"}}
