@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>익명 고민/칭찬 게시판</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes heartPop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+      100% { transform: scale(1); }
+    }
+    .heart-pop {
+      animation: heartPop 0.3s ease-in-out;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in-up {
+      animation: fadeInUp 0.3s ease-out;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    // TODO: Replace stub functions with Supabase client calls
+    const SUPABASE_URL = '';
+    const SUPABASE_ANON_KEY = '';
+
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    // ========================================
+    // Constants & Helpers
+    // ========================================
+    const CATEGORIES = [
+      { key: 'worry', label: '고민', emoji: '😔', bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', ring: 'ring-blue-300' },
+      { key: 'compliment', label: '칭찬', emoji: '🌸', bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-200', ring: 'ring-pink-300' },
+      { key: 'cheer', label: '응원', emoji: '💪', bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', ring: 'ring-orange-300' },
+      { key: 'poll', label: '투표', emoji: '🗳️', bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', ring: 'ring-purple-300' },
+    ];
+
+    const MAX_CONTENT_LENGTH = 500;
+
+    function getCategoryInfo(key) {
+      return CATEGORIES.find(c => c.key === key) || CATEGORIES[0];
+    }
+
+    function getRelativeTime(timestamp) {
+      const now = Date.now();
+      const diff = now - timestamp;
+      const seconds = Math.floor(diff / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      if (seconds < 60) return '방금 전';
+      if (minutes < 60) return `${minutes}분 전`;
+      if (hours < 24) return `${hours}시간 전`;
+      if (days < 7) return `${days}일 전`;
+      return new Date(timestamp).toLocaleDateString('ko-KR');
+    }
+
+    function generateId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    // ========================================
+    // Mock Data
+    // ========================================
+    const INITIAL_POSTS = [
+      {
+        id: generateId(),
+        category: 'worry',
+        content: '요즘 회사에서 새로운 프로젝트를 맡게 됐는데, 제가 잘 해낼 수 있을지 걱정이에요. 경험이 부족한 분야라서 더 불안하네요... 비슷한 경험 있으신 분 계신가요?',
+        empathy: 12,
+        tags: ['직장', '고민'],
+        replies: [
+          { id: 1, content: '저도 비슷한 경험이 있었는데, 하다 보면 늘더라고요. 화이팅!', createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
+          { id: 2, content: '모르는 건 빨리 물어보는 게 답이에요. 응원합니다!', createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
+        ],
+        createdAt: Date.now() - 1000 * 60 * 45,
+      },
+      {
+        id: generateId(),
+        category: 'compliment',
+        content: '오늘 카페에서 모르는 분이 제 노트북 충전기를 빌려주셨어요. 작은 친절이지만 하루가 따뜻해졌습니다. 그 분에게 감사해요!',
+        empathy: 24,
+        tags: ['위로', '일상'],
+        replies: [
+          { id: 3, content: '이런 이야기 들으면 기분이 좋아져요 ☺️', createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
+        ],
+        createdAt: Date.now() - 1000 * 60 * 60 * 2,
+      },
+      {
+        id: generateId(),
+        category: 'cheer',
+        content: '내일 면접 보시는 모든 분들 화이팅! 떨리겠지만 여러분은 이미 충분히 준비되어 있어요. 긴장하지 말고 본인의 이야기를 자신 있게 전해보세요!',
+        empathy: 38,
+        tags: ['응원', '면접'],
+        replies: [],
+        createdAt: Date.now() - 1000 * 60 * 60 * 5,
+      },
+      {
+        id: generateId(),
+        category: 'poll',
+        content: '퇴근 후 자기개발 vs 충분한 휴식, 여러분은 어떤 쪽인가요? 저는 요즘 휴식 쪽으로 기울고 있는데, 다들 어떻게 균형을 맞추시는지 궁금해요.',
+        empathy: 17,
+        tags: [],
+        replies: [],
+        createdAt: Date.now() - 1000 * 60 * 60 * 8,
+      },
+    ];
+
+    // ========================================
+    // API Functions (fetch-based)
+    // ========================================
+
+    async function loadPosts(sort = 'latest', category = '') {
+      const params = new URLSearchParams({ sort });
+      if (category) params.set('category', category);
+      const res = await fetch(`/api/posts?${params}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      // Server returns reply_count (number), not replies array
+      // Normalize: add replies:[] so existing card UI doesn't break
+      return json.data.map(p => ({ ...p, replies: [], empathy: p.empathy_count }));
+    }
+
+    async function addPost(post) {
+      const res = await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(post),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return { ...json.data, replies: [], empathy: json.data.empathy_count ?? 0 };
+    }
+
+    async function incrementEmpathy(id) {
+      const res = await fetch(`/api/posts/${id}/empathy`, { method: 'POST' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function loadReplies(postId) {
+      const res = await fetch(`/api/posts/${postId}/replies`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function addReply(postId, content) {
+      const res = await fetch(`/api/posts/${postId}/replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function updatePost(id, { content, tags }) {
+      const res = await fetch(`/api/posts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, tags }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return { ...json.data, replies: [], empathy: json.data.empathy_count ?? 0 };
+    }
+
+    async function deletePost(id) {
+      const res = await fetch(`/api/posts/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    function Badge({ category, className = '' }) {
+      const info = getCategoryInfo(category);
+      return (
+        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${info.bg} ${info.text} ${className}`}>
+          {info.emoji} {info.label}
+        </span>
+      );
+    }
+
+    function PillButton({ selected, onClick, children, className = '' }) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border-2 ${
+            selected
+              ? 'bg-gray-800 text-white border-gray-800 shadow-md'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:text-gray-800'
+          } ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Button({ variant = 'primary', size = 'md', disabled = false, onClick, children, className = '' }) {
+      const base = 'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2';
+      const variants = {
+        primary: 'bg-gray-800 text-white hover:bg-gray-900 focus:ring-gray-500 disabled:bg-gray-300 disabled:cursor-not-allowed',
+        secondary: 'bg-white text-gray-700 border-2 border-gray-200 hover:bg-gray-50 focus:ring-gray-300',
+        ghost: 'bg-transparent text-gray-500 hover:bg-gray-100 focus:ring-gray-300',
+      };
+      const sizes = {
+        sm: 'px-3 py-1.5 text-sm',
+        md: 'px-5 py-2.5 text-sm',
+        lg: 'px-6 py-3 text-base',
+      };
+      return (
+        <button
+          onClick={onClick}
+          disabled={disabled}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-5 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 Common Components
+    // ========================================
+
+    function Header() {
+      return (
+        <header className="text-center pt-8 pb-4">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 tracking-tight">
+            익명 게시판
+          </h1>
+          <p className="mt-1.5 text-gray-400 text-sm">
+            고민, 칭찬, 응원을 자유롭게 나누는 공간
+          </p>
+        </header>
+      );
+    }
+
+    function EmpathyButton({ count, onClick }) {
+      const [animating, setAnimating] = useState(false);
+
+      const handleClick = () => {
+        setAnimating(true);
+        onClick();
+        setTimeout(() => setAnimating(false), 300);
+      };
+
+      return (
+        <button
+          onClick={handleClick}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-all duration-200 text-gray-400 hover:text-red-500 hover:bg-red-50 active:scale-95"
+          aria-label={`공감 ${count}개`}
+        >
+          <span className={animating ? 'heart-pop' : ''}>
+            ❤️
+          </span>
+          <span className="font-medium text-gray-500">{count}</span>
+        </button>
+      );
+    }
+
+    function EmptyState() {
+      return (
+        <div className="text-center py-16">
+          <div className="text-5xl mb-4">📝</div>
+          <p className="text-gray-400 text-lg font-medium">아직 게시글이 없어요</p>
+          <p className="text-gray-300 text-sm mt-1">첫 번째 글을 작성해보세요!</p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Post Creation Form
+    // ========================================
+
+    const MAX_TAGS = 5;
+    const MAX_TAG_LENGTH = 10;
+
+    function PostForm({ onSubmit }) {
+      const [category, setCategory] = useState('');
+      const [content, setContent] = useState('');
+      const [tags, setTags] = useState([]);
+      const [tagInput, setTagInput] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const textareaRef = useRef(null);
+
+      const isValid = category && content.trim().length > 0;
+      const charCount = content.length;
+
+      const handleAddTag = () => {
+        const trimmed = tagInput.trim();
+        if (!trimmed || tags.length >= MAX_TAGS || trimmed.length > MAX_TAG_LENGTH || tags.includes(trimmed)) return;
+        setTags(prev => [...prev, trimmed]);
+        setTagInput('');
+      };
+
+      const handleTagKeyDown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAddTag();
+        }
+      };
+
+      const handleRemoveTag = (tagToRemove) => {
+        setTags(prev => prev.filter(t => t !== tagToRemove));
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!isValid || submitting) return;
+
+        setSubmitting(true);
+        try {
+          await onSubmit({ category, content: content.trim(), tags });
+          setCategory('');
+          setContent('');
+          setTags([]);
+          setTagInput('');
+          if (textareaRef.current) textareaRef.current.focus();
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      return (
+        <Card className="mb-6">
+          <form onSubmit={handleSubmit}>
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-600 mb-2.5">카테고리 선택</label>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map(cat => (
+                  <PillButton
+                    key={cat.key}
+                    selected={category === cat.key}
+                    onClick={() => setCategory(cat.key)}
+                  >
+                    {cat.emoji} {cat.label}
+                  </PillButton>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="post-content" className="block text-sm font-semibold text-gray-600 mb-2">내용</label>
+              <textarea
+                ref={textareaRef}
+                id="post-content"
+                value={content}
+                onChange={(e) => {
+                  if (e.target.value.length <= MAX_CONTENT_LENGTH) {
+                    setContent(e.target.value);
+                  }
+                }}
+                placeholder="익명으로 자유롭게 이야기를 나눠보세요..."
+                rows={4}
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-gray-400 focus:ring-0 focus:outline-none resize-none text-gray-700 placeholder-gray-300 transition-colors text-sm"
+                aria-describedby="char-counter"
+              />
+              <div id="char-counter" className="flex justify-end mt-1">
+                <span className={`text-xs ${charCount > MAX_CONTENT_LENGTH * 0.9 ? 'text-red-400 font-semibold' : 'text-gray-300'}`}>
+                  {charCount}/{MAX_CONTENT_LENGTH}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-600 mb-2">태그 (최대 {MAX_TAGS}개)</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => {
+                    if (e.target.value.length <= MAX_TAG_LENGTH) {
+                      setTagInput(e.target.value);
+                    }
+                  }}
+                  onKeyDown={handleTagKeyDown}
+                  placeholder="키워드 입력 후 Enter"
+                  disabled={tags.length >= MAX_TAGS}
+                  className="flex-1 px-3 py-2 rounded-lg border-2 border-gray-200 focus:border-gray-400 focus:ring-0 focus:outline-none text-sm text-gray-700 placeholder-gray-300 transition-colors disabled:bg-gray-50 disabled:cursor-not-allowed"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={!tagInput.trim() || tags.length >= MAX_TAGS}
+                  onClick={handleAddTag}
+                >
+                  + 태그 추가
+                </Button>
+              </div>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {tags.map(tag => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium"
+                    >
+                      #{tag}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="text-gray-400 hover:text-gray-600 ml-0.5 leading-none"
+                        aria-label={`${tag} 태그 삭제`}
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Button
+              variant="primary"
+              size="lg"
+              disabled={!isValid || submitting}
+              className="w-full"
+            >
+              {submitting ? '올리는 중...' : '익명으로 올리기'}
+            </Button>
+          </form>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 Post Card
+    // ========================================
+
+    // ========================================
+    // Emoji Picker
+    // ========================================
+
+    function EmojiPicker({ onSelect, onClose }) {
+      const EMOJIS = ['😊','😂','🥹','😍','🥰','😅','😭','😤','🤔','😶',
+                      '❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💯',
+                      '👍','👎','👏','🙌','🤝','🫶','💪','🙏','🤗','😮',
+                      '🔥','✨','🌟','💫','🎉','🎊','🌈','🌸','🍀','😎'];
+      const ref = useRef(null);
+
+      useEffect(() => {
+        function handleClick(e) {
+          if (ref.current && !ref.current.contains(e.target)) onClose();
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+      }, [onClose]);
+
+      return (
+        <div ref={ref} className="absolute bottom-full mb-1 left-0 z-10 bg-white border border-gray-200 rounded-xl shadow-lg p-2 w-52">
+          <div className="grid grid-cols-8 gap-0.5">
+            {EMOJIS.map(emoji => (
+              <button key={emoji} type="button" onClick={() => onSelect(emoji)}
+                className="text-lg hover:bg-gray-100 rounded p-0.5 transition-colors leading-none">
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Reply Section (lazy-loaded replies + emoji picker)
+    // ========================================
+
+    function ReplySection({ postId, onReplyAdded }) {
+      const [replies, setReplies] = useState([]);
+      const [loadingReplies, setLoadingReplies] = useState(true);
+      const [replyContent, setReplyContent] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+      useEffect(() => {
+        setLoadingReplies(true);
+        loadReplies(postId)
+          .then(data => setReplies(data))
+          .catch(() => setReplies([]))
+          .finally(() => setLoadingReplies(false));
+      }, [postId]);
+
+      const handleSubmit = async () => {
+        const trimmed = replyContent.trim();
+        if (!trimmed || submitting) return;
+        setSubmitting(true);
+        try {
+          const newReply = await addReply(postId, trimmed);
+          setReplies(prev => [...prev, newReply]);
+          setReplyContent('');
+          if (onReplyAdded) onReplyAdded();
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSubmit();
+        }
+      };
+
+      const handleEmojiSelect = (emoji) => {
+        setReplyContent(prev => prev + emoji);
+        setShowEmojiPicker(false);
+      };
+
+      return (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          {loadingReplies ? (
+            <div className="text-center py-3">
+              <span className="text-xs text-gray-400">답글 불러오는 중...</span>
+            </div>
+          ) : replies.length > 0 ? (
+            <div className="space-y-2.5 mb-3">
+              {replies.map(reply => (
+                <div key={reply.id} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                  <p className="text-sm text-gray-700 leading-relaxed">{reply.content}</p>
+                  <span className="text-xs text-gray-300 mt-1 block">
+                    {getRelativeTime(new Date(reply.created_at || reply.createdAt).getTime())}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="relative">
+            <div className="flex gap-2">
+              <div className="flex-1 relative flex items-center">
+                <input
+                  type="text"
+                  value={replyContent}
+                  onChange={(e) => setReplyContent(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="익명 답글을 남겨보세요..."
+                  className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-200 focus:border-gray-400 focus:ring-0 focus:outline-none text-sm text-gray-700 placeholder-gray-300 transition-colors"
+                />
+                <div className="absolute right-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(prev => !prev)}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-sm leading-none"
+                    aria-label="이모지 선택"
+                  >
+                    😊
+                  </button>
+                </div>
+                {showEmojiPicker && (
+                  <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setShowEmojiPicker(false)} />
+                )}
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!replyContent.trim() || submitting}
+                onClick={handleSubmit}
+              >
+                {submitting ? '...' : '익명 답글 달기'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function KebabMenu({ onEdit, onDelete }) {
+      const [open, setOpen] = useState(false);
+      const menuRef = useRef(null);
+
+      useEffect(() => {
+        if (!open) return;
+        function handleClick(e) {
+          if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+      }, [open]);
+
+      return (
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setOpen(prev => !prev)}
+            className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-100 transition-colors leading-none text-lg"
+            aria-label="게시글 메뉴"
+          >
+            &#x22EF;
+          </button>
+          {open && (
+            <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-md z-10 min-w-[120px] py-1">
+              <button
+                onClick={() => { setOpen(false); onEdit(); }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                ✏️ 수정
+              </button>
+              <button
+                onClick={() => { setOpen(false); onDelete(); }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                🗑️ 삭제
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function PostCard({ post, onEmpathy, onDelete, onUpdate }) {
+      const [showReplies, setShowReplies] = useState(false);
+      const [replyCount, setReplyCount] = useState(post.reply_count || (post.replies || []).length);
+      const [mode, setMode] = useState('view'); // 'view' | 'edit' | 'confirmDelete'
+      const [editContent, setEditContent] = useState(post.content);
+      const [editTags, setEditTags] = useState([...(post.tags || [])]);
+      const [editTagInput, setEditTagInput] = useState('');
+      const [saving, setSaving] = useState(false);
+      const [deleting, setDeleting] = useState(false);
+      const info = getCategoryInfo(post.category);
+
+      const handleStartEdit = () => {
+        setEditContent(post.content);
+        setEditTags([...(post.tags || [])]);
+        setEditTagInput('');
+        setMode('edit');
+      };
+
+      const handleCancelEdit = () => setMode('view');
+
+      const handleSaveEdit = async () => {
+        if (!editContent.trim() || saving) return;
+        setSaving(true);
+        try {
+          const updated = await updatePost(post.id, { content: editContent.trim(), tags: editTags });
+          onUpdate(updated);
+          setMode('view');
+        } catch {
+          // Fallback: update locally even if server fails
+          onUpdate({ ...post, content: editContent.trim(), tags: editTags });
+          setMode('view');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const handleConfirmDelete = async () => {
+        if (deleting) return;
+        setDeleting(true);
+        try {
+          await deletePost(post.id);
+          onDelete(post.id);
+        } catch {
+          // Fallback: remove locally even if server fails
+          onDelete(post.id);
+        } finally {
+          setDeleting(false);
+        }
+      };
+
+      const handleAddEditTag = () => {
+        const trimmed = editTagInput.trim();
+        if (!trimmed || editTags.length >= MAX_TAGS || trimmed.length > MAX_TAG_LENGTH || editTags.includes(trimmed)) return;
+        setEditTags(prev => [...prev, trimmed]);
+        setEditTagInput('');
+      };
+
+      const handleEditTagKeyDown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAddEditTag();
+        }
+      };
+
+      const editCharCount = editContent.length;
+
+      return (
+        <Card className="fade-in-up">
+          <div className="flex items-center justify-between mb-3">
+            <Badge category={post.category} />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-300">{getRelativeTime(typeof post.createdAt === 'number' ? post.createdAt : new Date(post.created_at || post.createdAt).getTime())}</span>
+              {mode === 'view' && (
+                <KebabMenu
+                  onEdit={handleStartEdit}
+                  onDelete={() => setMode('confirmDelete')}
+                />
+              )}
+            </div>
+          </div>
+
+          {mode === 'edit' ? (
+            <div>
+              <textarea
+                value={editContent}
+                onChange={(e) => {
+                  if (e.target.value.length <= MAX_CONTENT_LENGTH) {
+                    setEditContent(e.target.value);
+                  }
+                }}
+                rows={4}
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-gray-400 focus:ring-0 focus:outline-none resize-none text-gray-700 placeholder-gray-300 transition-colors text-sm mb-1"
+              />
+              <div className="flex justify-end mb-3">
+                <span className={`text-xs ${editCharCount > MAX_CONTENT_LENGTH * 0.9 ? 'text-red-400 font-semibold' : 'text-gray-300'}`}>
+                  {editCharCount}/{MAX_CONTENT_LENGTH}
+                </span>
+              </div>
+
+              <div className="mb-3">
+                <label className="block text-sm font-semibold text-gray-600 mb-2">태그 (최대 {MAX_TAGS}개)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={editTagInput}
+                    onChange={(e) => {
+                      if (e.target.value.length <= MAX_TAG_LENGTH) {
+                        setEditTagInput(e.target.value);
+                      }
+                    }}
+                    onKeyDown={handleEditTagKeyDown}
+                    placeholder="키워드 입력 후 Enter"
+                    disabled={editTags.length >= MAX_TAGS}
+                    className="flex-1 px-3 py-2 rounded-lg border-2 border-gray-200 focus:border-gray-400 focus:ring-0 focus:outline-none text-sm text-gray-700 placeholder-gray-300 transition-colors disabled:bg-gray-50 disabled:cursor-not-allowed"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!editTagInput.trim() || editTags.length >= MAX_TAGS}
+                    onClick={handleAddEditTag}
+                  >
+                    + 태그 추가
+                  </Button>
+                </div>
+                {editTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2.5">
+                    {editTags.map(tag => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium"
+                      >
+                        #{tag}
+                        <button
+                          type="button"
+                          onClick={() => setEditTags(prev => prev.filter(t => t !== tag))}
+                          className="text-gray-400 hover:text-gray-600 ml-0.5 leading-none"
+                          aria-label={`${tag} 태그 삭제`}
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={handleCancelEdit} disabled={saving}>
+                  취소
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleSaveEdit} disabled={!editContent.trim() || saving}>
+                  {saving ? '저장 중...' : '저장'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap mb-3">
+                {post.content}
+              </p>
+              {post.tags && post.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {post.tags.map(tag => (
+                    <span key={tag} className="inline-block px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {mode === 'confirmDelete' && (
+                <div className="flex items-center gap-3 mb-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                  <span className="text-sm text-red-600 font-medium">정말 삭제할까요?</span>
+                  <div className="flex gap-2 ml-auto">
+                    <button
+                      onClick={() => setMode('view')}
+                      disabled={deleting}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={handleConfirmDelete}
+                      disabled={deleting}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+                    >
+                      {deleting ? '삭제 중...' : '삭제'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-1">
+                <button
+                  onClick={() => setShowReplies(prev => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-all duration-200 ${
+                    showReplies ? 'text-blue-500 bg-blue-50' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
+                  }`}
+                  aria-label={`답글 ${replyCount}개`}
+                >
+                  <span>💬</span>
+                  <span className="font-medium">답글 {replyCount}개</span>
+                </button>
+                <EmpathyButton count={post.empathy} onClick={() => onEmpathy(post.id)} />
+              </div>
+              {showReplies && (
+                <ReplySection
+                  postId={post.id}
+                  onReplyAdded={() => setReplyCount(prev => prev + 1)}
+                />
+              )}
+            </>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 Post List with Sort
+    // ========================================
+
+    function PostList({ posts, sortMode, onSortChange, onEmpathy, onDelete, onUpdate }) {
+      return (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-500">
+              전체 {posts.length}개
+            </h2>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => onSortChange('latest')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  sortMode === 'latest'
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                최신순
+              </button>
+              <button
+                onClick={() => onSortChange('empathy')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  sortMode === 'empathy'
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                공감순
+              </button>
+            </div>
+          </div>
+
+          {posts.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <div className="space-y-3">
+              {posts.map(post => (
+                <PostCard key={post.id} post={post} onEmpathy={onEmpathy} onDelete={onDelete} onUpdate={onUpdate} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+
+    function App() {
+      const [posts, setPosts] = useState([]);
+      const [sortMode, setSortMode] = useState('latest');
+      const [categoryFilter, setCategoryFilter] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [usingFallback, setUsingFallback] = useState(false);
+
+      // Load posts on mount and when sort/category changes
+      useEffect(() => {
+        setLoading(true);
+        loadPosts(sortMode, categoryFilter)
+          .then(data => {
+            setPosts(data);
+            setUsingFallback(false);
+          })
+          .catch(() => {
+            // Fallback to mock data when server is unreachable
+            setPosts([...INITIAL_POSTS]);
+            setUsingFallback(true);
+          })
+          .finally(() => setLoading(false));
+      }, [sortMode, categoryFilter]);
+
+      // Sort posts (server already sorts, but keep for fallback mock data)
+      const sortedPosts = useMemo(() => {
+        if (!usingFallback) return posts; // server already sorted
+        const sorted = [...posts];
+        if (sortMode === 'latest') {
+          sorted.sort((a, b) => b.createdAt - a.createdAt);
+        } else {
+          sorted.sort((a, b) => b.empathy - a.empathy);
+        }
+        return sorted;
+      }, [posts, sortMode, usingFallback]);
+
+      const handleAddPost = useCallback(async (postData) => {
+        const newPost = await addPost(postData);
+        setPosts(prev => [newPost, ...prev]);
+      }, []);
+
+      const handleDeletePost = useCallback((id) => {
+        setPosts(prev => prev.filter(p => p.id !== id));
+      }, []);
+
+      const handleUpdatePost = useCallback((updated) => {
+        setPosts(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
+      }, []);
+
+      const handleEmpathy = useCallback(async (id) => {
+        // Optimistic update
+        setPosts(prev =>
+          prev.map(p => p.id === id ? { ...p, empathy: p.empathy + 1 } : p)
+        );
+        try {
+          await incrementEmpathy(id);
+        } catch {
+          // Rollback on failure
+          setPosts(prev =>
+            prev.map(p => p.id === id ? { ...p, empathy: p.empathy - 1 } : p)
+          );
+        }
+      }, []);
+
+      if (loading) {
+        return (
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="text-gray-300 text-lg">불러오는 중...</div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="max-w-2xl mx-auto px-4 pb-12">
+          <Header />
+
+          {usingFallback && (
+            <div className="mb-4 px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-xl text-sm text-yellow-700">
+              서버에 연결할 수 없어 샘플 데이터를 표시합니다
+            </div>
+          )}
+
+          <PostForm onSubmit={handleAddPost} />
+
+          {/* Category filter pills */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <PillButton selected={categoryFilter === ''} onClick={() => setCategoryFilter('')}>
+              전체
+            </PillButton>
+            {CATEGORIES.map(cat => (
+              <PillButton
+                key={cat.key}
+                selected={categoryFilter === cat.key}
+                onClick={() => setCategoryFilter(cat.key)}
+              >
+                {cat.emoji} {cat.label}
+              </PillButton>
+            ))}
+          </div>
+
+          <PostList
+            posts={sortedPosts}
+            sortMode={sortMode}
+            onSortChange={setSortMode}
+            onEmpathy={handleEmpathy}
+            onDelete={handleDeletePost}
+            onUpdate={handleUpdatePost}
+          />
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
