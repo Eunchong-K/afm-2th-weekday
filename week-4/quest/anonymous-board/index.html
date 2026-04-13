@@ -29,10 +29,6 @@
 <body class="bg-gray-50 min-h-screen">
   <div id="root"></div>
   <script type="text/babel">
-    // TODO: Replace stub functions with Supabase client calls
-    const SUPABASE_URL = '';
-    const SUPABASE_ANON_KEY = '';
-
     // ========================================
     // React Hooks Destructuring
     // ========================================
@@ -55,8 +51,9 @@
     }
 
     function getRelativeTime(timestamp) {
+      const date = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
       const now = Date.now();
-      const diff = now - timestamp;
+      const diff = now - date;
       const seconds = Math.floor(diff / 1000);
       const minutes = Math.floor(seconds / 60);
       const hours = Math.floor(minutes / 60);
@@ -66,7 +63,7 @@
       if (minutes < 60) return `${minutes}분 전`;
       if (hours < 24) return `${hours}시간 전`;
       if (days < 7) return `${days}일 전`;
-      return new Date(timestamp).toLocaleDateString('ko-KR');
+      return new Date(date).toLocaleDateString('ko-KR');
     }
 
     function generateId() {
@@ -547,7 +544,7 @@
                 <div key={reply.id} className="bg-gray-50 rounded-lg px-3 py-2.5">
                   <p className="text-sm text-gray-700 leading-relaxed">{reply.content}</p>
                   <span className="text-xs text-gray-300 mt-1 block">
-                    {getRelativeTime(new Date(reply.created_at || reply.createdAt).getTime())}
+                    {getRelativeTime(reply.created_at || reply.createdAt)}
                   </span>
                 </div>
               ))}
@@ -705,7 +702,7 @@
           <div className="flex items-center justify-between mb-3">
             <Badge category={post.category} />
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-300">{getRelativeTime(typeof post.createdAt === 'number' ? post.createdAt : new Date(post.created_at || post.createdAt).getTime())}</span>
+              <span className="text-xs text-gray-300">{getRelativeTime(post.created_at || post.createdAt)}</span>
               {mode === 'view' && (
                 <KebabMenu
                   onEdit={handleStartEdit}

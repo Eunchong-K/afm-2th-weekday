@@ -1,0 +1,5 @@
+node_modules/
+.env
+balance.db
+balance.db-shm
+balance.db-wal

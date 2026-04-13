@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>밸런스 게임</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes glow-blue {
+      0%, 100% { box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
+      50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.7); }
+    }
+    @keyframes glow-orange {
+      0%, 100% { box-shadow: 0 0 8px rgba(249, 115, 22, 0.4); }
+      50% { box-shadow: 0 0 20px rgba(249, 115, 22, 0.7); }
+    }
+    .glow-blue { animation: glow-blue 1.5s ease-in-out infinite; }
+    .glow-orange { animation: glow-orange 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useEffect, useCallback, useMemo, createContext, useContext } = React;
+
+    // ========================================
+    // API Functions (fetch-based)
+    // ========================================
+    const SAMPLE_GAMES = [
+      { id: 'sample1', option_a: '월급 200만원 + 주3일 출근', option_b: '월급 500만원 + 주6일 출근', votes_a: 73, votes_b: 27, total: 100 },
+      { id: 'sample2', option_a: '평생 여름만 있는 세상', option_b: '평생 겨울만 있는 세상', votes_a: 41, votes_b: 59, total: 100 },
+      { id: 'sample3', option_a: '기억력이 완벽한 삶', option_b: '잠을 2시간만 자도 되는 삶', votes_a: 55, votes_b: 45, total: 100 },
+      { id: 'sample4', option_a: '치킨', option_b: '피자', votes_a: 88, votes_b: 62, total: 150 },
+    ];
+
+    async function loadGames() {
+      const res = await fetch('/api/games');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data.map(g => ({ ...g, empathy: g.empathy_count }));
+    }
+
+    async function loadGame(id) {
+      const res = await fetch(`/api/games/${id}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function createGame({ optionA, optionB }) {
+      const res = await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ option_a: optionA, option_b: optionB }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function castVote(gameId, choice) {
+      const res = await fetch(`/api/games/${gameId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choice }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      return json.data;
+    }
+
+    async function deleteGame(id) {
+      const res = await fetch(`/api/games/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+    }
+
+    // localStorage helpers for vote tracking
+    function getVotedGames() {
+      return JSON.parse(localStorage.getItem('balance_voted') || '{}');
+    }
+
+    function saveVote(gameId, choice) {
+      const voted = getVotedGames();
+      voted[gameId] = choice;
+      localStorage.setItem('balance_voted', JSON.stringify(voted));
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = 'primary', size = 'md', disabled = false, onClick, className = '', children, ...rest }) {
+      const base = 'font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 cursor-pointer';
+      const variants = {
+        primary: 'bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-400 disabled:bg-blue-300',
+        secondary: 'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-400 disabled:bg-gray-100',
+        danger: 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-400 disabled:bg-red-300',
+        ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 focus:ring-gray-300',
+      };
+      const sizes = {
+        sm: 'px-3 py-1.5 text-sm',
+        md: 'px-5 py-2.5 text-base',
+        lg: 'px-6 py-3 text-lg',
+      };
+      return (
+        <button
+          className={`${base} ${variants[variant]} ${sizes[size]} ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${className}`}
+          disabled={disabled}
+          onClick={onClick}
+          {...rest}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ className = '', children, onClick }) {
+      return (
+        <div
+          className={`bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200 ${onClick ? 'cursor-pointer' : ''} ${className}`}
+          onClick={onClick}
+        >
+          {children}
+        </div>
+      );
+    }
+
+    function Textarea({ label, value, onChange, placeholder, maxLength, error, className = '' }) {
+      const count = value ? value.length : 0;
+      return (
+        <div className={className}>
+          {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+          <textarea
+            className={`w-full border-2 rounded-xl px-4 py-3 text-base resize-none focus:outline-none transition-colors ${
+              error ? 'border-red-400 focus:border-red-500' : 'border-gray-200 focus:border-blue-400'
+            }`}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            maxLength={maxLength}
+            rows={3}
+          />
+          {maxLength && (
+            <div className={`text-right text-xs mt-1 ${count >= maxLength ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+              {count}/{maxLength}
+            </div>
+          )}
+          {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
+        </div>
+      );
+    }
+
+    function ProgressBar({ percentA, percentB, size = 'md' }) {
+      const h = size === 'lg' ? 'h-10' : 'h-6';
+      const textSize = size === 'lg' ? 'text-sm font-bold' : 'text-xs font-semibold';
+      return (
+        <div className={`w-full ${h} rounded-full overflow-hidden flex bg-gray-200`}>
+          <div
+            className={`bg-blue-500 flex items-center justify-center text-white ${textSize} transition-all duration-700 ease-out`}
+            style={{ width: `${percentA}%`, minWidth: percentA > 0 ? '2rem' : '0' }}
+          >
+            {percentA > 5 && `${percentA}%`}
+          </div>
+          <div
+            className={`bg-orange-500 flex items-center justify-center text-white ${textSize} transition-all duration-700 ease-out`}
+            style={{ width: `${percentB}%`, minWidth: percentB > 0 ? '2rem' : '0' }}
+          >
+            {percentB > 5 && `${percentB}%`}
+          </div>
+        </div>
+      );
+    }
+
+    function Spinner() {
+      return (
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🔀 Router
+    // ========================================
+    function parseHash() {
+      const hash = window.location.hash.slice(1) || '/';
+      return hash;
+    }
+
+    function matchRoute(pattern, path) {
+      const patternParts = pattern.split('/');
+      const pathParts = path.split('/');
+      if (patternParts.length !== pathParts.length) return null;
+      const params = {};
+      for (let i = 0; i < patternParts.length; i++) {
+        if (patternParts[i].startsWith(':')) {
+          params[patternParts[i].slice(1)] = pathParts[i];
+        } else if (patternParts[i] !== pathParts[i]) {
+          return null;
+        }
+      }
+      return params;
+    }
+
+    function useRouter() {
+      const [path, setPath] = useState(parseHash());
+
+      useEffect(() => {
+        const handler = () => setPath(parseHash());
+        window.addEventListener('hashchange', handler);
+        return () => window.removeEventListener('hashchange', handler);
+      }, []);
+
+      const navigate = useCallback((to) => {
+        window.location.hash = to;
+      }, []);
+
+      return { path, navigate };
+    }
+
+    // ========================================
+    // 🧩 Common / Layout Components
+    // ========================================
+    function Header({ navigate }) {
+      return (
+        <header className="bg-white shadow-sm sticky top-0 z-10">
+          <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
+            <h1
+              className="text-xl font-bold text-gray-800 cursor-pointer flex items-center gap-2"
+              onClick={() => navigate('/')}
+            >
+              <span className="text-2xl">&#9878;&#65039;</span> 밸런스 게임
+            </h1>
+            <Button size="sm" onClick={() => navigate('/create')}>
+              게임 만들기
+            </Button>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: Home
+    // ========================================
+    function SmallSpinner() {
+      return (
+        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin inline-block"></div>
+      );
+    }
+
+    function HomeGameCard({ game, onVoteUpdate, onDelete, isMock }) {
+      const [votedChoice, setVotedChoice] = useState(() => {
+        const voted = getVotedGames();
+        return voted[game.id] || null;
+      });
+      const [voting, setVoting] = useState(false);
+      const [confirmDelete, setConfirmDelete] = useState(false);
+
+      const hasVoted = !!votedChoice;
+      const total = game.votes_a + game.votes_b;
+      const pA = total === 0 ? 50 : Math.round((game.votes_a / total) * 100);
+      const pB = total === 0 ? 50 : Math.round((game.votes_b / total) * 100);
+
+      async function handleVote(choice) {
+        if (hasVoted || voting) return;
+        setVoting(true);
+        try {
+          const result = await castVote(game.id, choice);
+          onVoteUpdate(game.id, result.votes_a, result.votes_b);
+        } catch {
+          onVoteUpdate(
+            game.id,
+            choice === 'A' ? game.votes_a + 1 : game.votes_a,
+            choice === 'B' ? game.votes_b + 1 : game.votes_b
+          );
+        }
+        setVotedChoice(choice);
+        saveVote(game.id, choice);
+        setVoting(false);
+      }
+
+      async function handleDelete() {
+        if (isMock) { alert('서버에 연결할 수 없습니다'); setConfirmDelete(false); return; }
+        try {
+          await deleteGame(game.id);
+          onDelete(game.id);
+        } catch {
+          alert('서버에 연결할 수 없습니다');
+          setConfirmDelete(false);
+        }
+      }
+
+      return (
+        <Card className="p-5 relative">
+          {/* Delete button */}
+          {!confirmDelete ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+              className="absolute top-3 right-3 text-gray-300 hover:text-red-400 transition-colors cursor-pointer text-lg"
+              title="삭제"
+              aria-label="게임 삭제"
+            >
+              &#128465;&#65039;
+            </button>
+          ) : (
+            <div className="absolute top-3 right-3 flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 shadow-md z-10">
+              <span className="text-sm text-gray-600">삭제할까요?</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                className="text-sm font-semibold text-red-500 hover:text-red-700 cursor-pointer"
+              >
+                삭제
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); }}
+                className="text-sm font-semibold text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                취소
+              </button>
+            </div>
+          )}
+
+          {/* Option labels */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex-1 text-center">
+              <span className="text-xs font-bold text-blue-500 uppercase">Option A</span>
+            </div>
+            <div className="px-3">
+              <span className="text-gray-300 font-black text-sm">VS</span>
+            </div>
+            <div className="flex-1 text-center">
+              <span className="text-xs font-bold text-orange-500 uppercase">Option B</span>
+            </div>
+          </div>
+
+          {!hasVoted ? (
+            /* Vote buttons */
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleVote('A')}
+                disabled={voting}
+                className="bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 hover:border-blue-400 text-blue-700 rounded-xl p-4 flex-1 font-semibold text-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {voting ? <SmallSpinner /> : game.option_a}
+              </button>
+              <button
+                onClick={() => handleVote('B')}
+                disabled={voting}
+                className="bg-orange-50 hover:bg-orange-100 border-2 border-orange-200 hover:border-orange-400 text-orange-700 rounded-xl p-4 flex-1 font-semibold text-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {voting ? <SmallSpinner /> : game.option_b}
+              </button>
+            </div>
+          ) : (
+            /* Result display after voting */
+            <div>
+              {/* Option text with voted indicator */}
+              <div className="flex items-center justify-between mb-3">
+                <div className={`flex-1 text-center font-bold text-base ${votedChoice === 'A' ? 'text-blue-600' : 'text-gray-500'}`}>
+                  {votedChoice === 'A' && <span className="mr-1">&#10003;</span>}
+                  {game.option_a}
+                </div>
+                <div className="px-3">
+                  <span className="text-gray-300 font-black text-sm">VS</span>
+                </div>
+                <div className={`flex-1 text-center font-bold text-base ${votedChoice === 'B' ? 'text-orange-600' : 'text-gray-500'}`}>
+                  {votedChoice === 'B' && <span className="mr-1">&#10003;</span>}
+                  {game.option_b}
+                </div>
+              </div>
+              <ProgressBar percentA={pA} percentB={pB} />
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-blue-600 font-semibold text-sm">A: {pA}%</span>
+                <span className="text-gray-400 text-sm">&#128101; 총 {total}명 참여</span>
+                <span className="text-orange-600 font-semibold text-sm">B: {pB}%</span>
+              </div>
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    function HomePage({ navigate }) {
+      const [games, setGames] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [isMock, setIsMock] = useState(false);
+
+      useEffect(() => {
+        setLoading(true);
+        loadGames()
+          .then((data) => { setGames(data); setIsMock(false); })
+          .catch(() => { setGames(SAMPLE_GAMES); setIsMock(true); })
+          .finally(() => setLoading(false));
+      }, []);
+
+      // SSE for real-time vote updates
+      useEffect(() => {
+        if (isMock) return;
+        const es = new EventSource('/api/events');
+        es.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.gameId) {
+              setGames(prev => prev.map(g =>
+                g.id === data.gameId
+                  ? { ...g, votes_a: data.votes_a, votes_b: data.votes_b, total: data.total }
+                  : g
+              ));
+            }
+          } catch {}
+        };
+        return () => es.close();
+      }, [isMock]);
+
+      function handleVoteUpdate(gameId, votes_a, votes_b) {
+        setGames(prev => prev.map(g =>
+          g.id === gameId ? { ...g, votes_a, votes_b } : g
+        ));
+      }
+
+      function handleDelete(gameId) {
+        if (isMock) { alert('서버에 연결할 수 없습니다'); return; }
+        setGames(prev => prev.filter(g => g.id !== gameId));
+      }
+
+      if (loading) return <Spinner />;
+
+      return (
+        <div className="py-6">
+          {isMock && (
+            <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-xl px-4 py-3 mb-4 text-sm font-medium">
+              서버에 연결할 수 없습니다. 샘플 데이터를 표시합니다.
+            </div>
+          )}
+          {games.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="text-6xl mb-4">&#128064;</div>
+              <p className="text-gray-500 text-lg mb-4">아직 등록된 게임이 없습니다</p>
+              <Button onClick={() => navigate('/create')}>첫 게임 만들기</Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {games.map((game) => (
+                <HomeGameCard
+                  key={game.id}
+                  game={game}
+                  onVoteUpdate={handleVoteUpdate}
+                  onDelete={handleDelete}
+                  isMock={isMock}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: Create Game
+    // ========================================
+    function CreateGamePage({ navigate }) {
+      const [optionA, setOptionA] = useState('');
+      const [optionB, setOptionB] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const [error, setError] = useState('');
+
+      const canSubmit = optionA.trim().length > 0 && optionB.trim().length > 0 && !submitting;
+
+      async function handleSubmit(e) {
+        e.preventDefault();
+        if (!canSubmit) return;
+        setSubmitting(true);
+        setError('');
+        try {
+          await createGame({ optionA: optionA.trim(), optionB: optionB.trim() });
+          navigate('/');
+        } catch (err) {
+          setError('서버에 연결할 수 없습니다');
+        } finally {
+          setSubmitting(false);
+        }
+      }
+
+      return (
+        <div className="py-6">
+          <Card className="p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-6 text-center">새 밸런스 게임 만들기</h2>
+            <form onSubmit={handleSubmit}>
+              <Textarea
+                label="Option A"
+                value={optionA}
+                onChange={(e) => setOptionA(e.target.value)}
+                placeholder="예: 월급 200만원 + 주3일 출근"
+                maxLength={100}
+              />
+
+              <div className="flex items-center justify-center my-4">
+                <div className="flex-1 h-px bg-gray-200"></div>
+                <span className="px-4 text-gray-400 font-black text-lg">VS</span>
+                <div className="flex-1 h-px bg-gray-200"></div>
+              </div>
+
+              <Textarea
+                label="Option B"
+                value={optionB}
+                onChange={(e) => setOptionB(e.target.value)}
+                placeholder="예: 월급 500만원 + 주6일 출근"
+                maxLength={100}
+              />
+
+              {error && <p className="text-red-500 text-sm mt-3 text-center">{error}</p>}
+
+              <div className="flex gap-3 mt-6">
+                <Button type="button" variant="secondary" className="flex-1" onClick={() => navigate('/')}>
+                  취소
+                </Button>
+                <Button type="submit" className="flex-1" disabled={!canSubmit}>
+                  {submitting ? '등록 중...' : '게임 등록하기'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: Game Detail
+    // ========================================
+    function GameDetailPage({ id, navigate }) {
+      const [game, setGame] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [votedChoice, setVotedChoice] = useState(null);
+      const [voting, setVoting] = useState(false);
+      const [confirmDelete, setConfirmDelete] = useState(false);
+
+      // Check localStorage for prior vote
+      useEffect(() => {
+        const voted = getVotedGames();
+        if (voted[id]) setVotedChoice(voted[id]);
+      }, [id]);
+
+      // Load game data
+      useEffect(() => {
+        setLoading(true);
+        loadGame(id)
+          .then((data) => setGame(data))
+          .catch(() => setGame(null))
+          .finally(() => setLoading(false));
+      }, [id]);
+
+      async function handleVote(choice) {
+        if (votedChoice || voting) return;
+        setVoting(true);
+        try {
+          const result = await castVote(id, choice);
+          setGame((prev) => (prev ? { ...prev, votes_a: result.votes_a, votes_b: result.votes_b } : prev));
+        } catch {
+          setGame((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              votes_a: choice === 'A' ? prev.votes_a + 1 : prev.votes_a,
+              votes_b: choice === 'B' ? prev.votes_b + 1 : prev.votes_b,
+            };
+          });
+        }
+        setVotedChoice(choice);
+        saveVote(id, choice);
+        setVoting(false);
+      }
+
+      async function handleDelete() {
+        try {
+          await deleteGame(id);
+          navigate('/');
+        } catch {
+          alert('서버에 연결할 수 없습니다');
+          setConfirmDelete(false);
+        }
+      }
+
+      if (loading) return <Spinner />;
+
+      if (!game) {
+        return (
+          <div className="text-center py-20">
+            <div className="text-6xl mb-4">&#128533;</div>
+            <p className="text-gray-500 text-lg mb-4">게임을 찾을 수 없습니다</p>
+            <Button onClick={() => navigate('/')}>목록으로 돌아가기</Button>
+          </div>
+        );
+      }
+
+      const total = game.votes_a + game.votes_b;
+      const pA = total === 0 ? 50 : Math.round((game.votes_a / total) * 100);
+      const pB = total === 0 ? 50 : Math.round((game.votes_b / total) * 100);
+      const hasVoted = !!votedChoice;
+
+      return (
+        <div className="py-6 space-y-5">
+          {/* Delete button */}
+          <div className="flex justify-end">
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-gray-400 hover:text-red-400 transition-colors cursor-pointer text-sm flex items-center gap-1"
+              >
+                <span>&#128465;&#65039;</span> 삭제
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 shadow-md">
+                <span className="text-sm text-gray-600">삭제할까요?</span>
+                <button
+                  onClick={handleDelete}
+                  className="text-sm font-semibold text-red-500 hover:text-red-700 cursor-pointer"
+                >
+                  삭제
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-sm font-semibold text-gray-400 hover:text-gray-600 cursor-pointer"
+                >
+                  취소
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Vote Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Option A */}
+            <button
+              onClick={() => handleVote('A')}
+              disabled={hasVoted || voting}
+              className={`p-6 rounded-xl border-2 text-left transition-all duration-300 cursor-pointer
+                ${votedChoice === 'A'
+                  ? 'border-blue-500 bg-blue-50 glow-blue'
+                  : hasVoted
+                  ? 'border-gray-200 bg-gray-50 opacity-60'
+                  : 'border-gray-200 bg-white hover:border-blue-400 hover:scale-[1.02] active:scale-[0.98]'}
+                ${hasVoted || voting ? 'cursor-default' : ''}
+              `}
+            >
+              <div className="text-xs font-bold text-blue-500 mb-2 uppercase">Option A</div>
+              <div className="text-lg font-bold text-gray-800 mb-3">{game.option_a}</div>
+              {hasVoted && (
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-black text-blue-600">{pA}%</span>
+                  <span className="text-gray-400 text-sm">{game.votes_a}표</span>
+                </div>
+              )}
+            </button>
+
+            {/* VS divider (mobile) */}
+            <div className="flex items-center justify-center sm:hidden -my-2">
+              <span className="text-gray-300 font-black text-lg">VS</span>
+            </div>
+
+            {/* Option B */}
+            <button
+              onClick={() => handleVote('B')}
+              disabled={hasVoted || voting}
+              className={`p-6 rounded-xl border-2 text-left transition-all duration-300 cursor-pointer
+                ${votedChoice === 'B'
+                  ? 'border-orange-500 bg-orange-50 glow-orange'
+                  : hasVoted
+                  ? 'border-gray-200 bg-gray-50 opacity-60'
+                  : 'border-gray-200 bg-white hover:border-orange-400 hover:scale-[1.02] active:scale-[0.98]'}
+                ${hasVoted || voting ? 'cursor-default' : ''}
+              `}
+            >
+              <div className="text-xs font-bold text-orange-500 mb-2 uppercase">Option B</div>
+              <div className="text-lg font-bold text-gray-800 mb-3">{game.option_b}</div>
+              {hasVoted && (
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-black text-orange-600">{pB}%</span>
+                  <span className="text-gray-400 text-sm">{game.votes_b}표</span>
+                </div>
+              )}
+            </button>
+          </div>
+
+          {/* Progress Bar */}
+          {hasVoted && (
+            <Card className="p-5">
+              <ProgressBar percentA={pA} percentB={pB} size="lg" />
+              <div className="flex justify-between mt-2 text-sm">
+                <span className="text-blue-600 font-semibold">A: {pA}%</span>
+                <span className="text-gray-400">&#128101; 총 참여자 {total}명</span>
+                <span className="text-orange-600 font-semibold">B: {pB}%</span>
+              </div>
+            </Card>
+          )}
+
+          {!hasVoted && (
+            <p className="text-center text-gray-400 text-sm">하나를 선택해주세요!</p>
+          )}
+
+          {/* Back button */}
+          <div className="text-center pt-2">
+            <Button variant="ghost" onClick={() => navigate('/')}>
+              &#8592; 목록으로
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+    function App() {
+      const { path, navigate } = useRouter();
+
+      let page = null;
+      let homeMatch = matchRoute('/', path);
+      let createMatch = matchRoute('/create', path);
+      let gameMatch = matchRoute('/game/:id', path);
+
+      if (createMatch) {
+        page = <CreateGamePage navigate={navigate} />;
+      } else if (gameMatch) {
+        page = <GameDetailPage id={gameMatch.id} navigate={navigate} key={gameMatch.id} />;
+      } else {
+        page = <HomePage navigate={navigate} />;
+      }
+
+      return (
+        <div className="min-h-screen bg-gray-50">
+          <Header navigate={navigate} />
+          <main className="max-w-2xl mx-auto px-4 pb-12">
+            {page}
+          </main>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
