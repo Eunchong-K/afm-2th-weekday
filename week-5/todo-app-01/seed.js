@@ -40,10 +40,24 @@ async function seed() {
     `);
     console.log('✓ todo-app-01_todos 테이블 준비');
 
-    // 3. Clear existing demo users
-    await client.query(`DELETE FROM "todo-app-01_users" WHERE email IN ('alice@demo.com', 'bob@demo.com');`);
+    // 3. is_admin 컬럼 마이그레이션
+    await client.query(`
+      ALTER TABLE "todo-app-01_users"
+        ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+    `);
 
-    // 4. Insert 2 demo users
+    // 4. Clear existing demo/admin users
+    await client.query(`DELETE FROM "todo-app-01_users" WHERE email IN ('alice@demo.com', 'bob@demo.com', 'abcd@school.com');`);
+
+    // 5. Insert super admin
+    const adminHash = await bcrypt.hash('abcd123', 10);
+    await client.query(`
+      INSERT INTO "todo-app-01_users" (email, password_hash, nickname, is_admin)
+      VALUES ($1, $2, $3, true)
+    `, ['abcd@school.com', adminHash, '관리자']);
+    console.log('✓ 슈퍼 관리자 생성: abcd@school.com');
+
+    // 6. Insert 2 demo users
     const aliceHash = await bcrypt.hash('alice1234', 10);
     const bobHash   = await bcrypt.hash('bob1234',   10);
 
@@ -96,12 +110,13 @@ async function seed() {
 
     // Summary
     console.log('\n=== 데모 데이터 삽입 완료 ===');
-    console.log('┌─────────────────────────────────────┐');
-    console.log('│  유저       이메일           비밀번호  │');
-    console.log('├─────────────────────────────────────┤');
-    console.log('│  Alice  alice@demo.com  alice1234   │');
-    console.log('│  Bob    bob@demo.com    bob1234     │');
-    console.log('└─────────────────────────────────────┘');
+    console.log('┌──────────────────────────────────────────────────────┐');
+    console.log('│  역할       이메일               비밀번호              │');
+    console.log('├──────────────────────────────────────────────────────┤');
+    console.log('│  슈퍼관리자  abcd@school.com      abcd123             │');
+    console.log('│  Alice      alice@demo.com        alice1234           │');
+    console.log('│  Bob        bob@demo.com          bob1234             │');
+    console.log('└──────────────────────────────────────────────────────┘');
 
   } catch (err) {
     await client.query('ROLLBACK');

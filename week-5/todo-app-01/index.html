@@ -144,9 +144,129 @@
     }
 
     // ========================================
+    // AdminPage
+    // ========================================
+    function AdminPage({ user, onLogout, onMyTodos }) {
+      const [users, setUsers]   = useState([]);
+      const [todos, setTodos]   = useState([]);
+      const [tab, setTab]       = useState('users'); // 'users' | 'todos'
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        Promise.all([
+          api('GET', '/api/admin/users'),
+          api('GET', '/api/admin/todos'),
+        ]).then(([u, t]) => {
+          if (u.success) setUsers(u.data);
+          if (t.success) setTodos(t.data);
+        }).finally(() => setLoading(false));
+      }, []);
+
+      const deleteUser = async (id) => {
+        if (!confirm('이 유저와 모든 할 일을 삭제할까요?')) return;
+        const data = await api('DELETE', `/api/admin/users/${id}`);
+        if (data.success) {
+          setUsers(prev => prev.filter(u => u.id !== id));
+          setTodos(prev => prev.filter(t => t.user_id !== id));
+        }
+      };
+
+      const deleteTodo = async (id) => {
+        const data = await api('DELETE', `/api/admin/todos/${id}`);
+        if (data.success) setTodos(prev => prev.filter(t => t.id !== id));
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-10">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-800">관리자 패널</h1>
+              <p className="text-xs text-gray-400 mt-0.5">{user.email}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onMyTodos}
+                className="text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg transition">
+                내 할 일
+              </button>
+              <button onClick={onLogout}
+                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg transition">
+                로그아웃
+              </button>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+            {[['users', `유저 (${users.length})`], ['todos', `할 일 (${todos.length})`]].map(([key, label]) => (
+              <button key={key} onClick={() => setTab(key)}
+                className={`px-5 py-2 text-sm rounded-md transition ${
+                  tab === key ? 'bg-white text-indigo-600 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {loading && <p className="text-center text-gray-400 text-sm py-12">불러오는 중...</p>}
+
+          {/* User list */}
+          {!loading && tab === 'users' && (
+            <div className="space-y-2">
+              {users.map(u => (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-100 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">{u.nickname}</span>
+                      {u.is_admin && (
+                        <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-medium">관리자</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                  </div>
+                  <span className="text-xs text-gray-400 shrink-0">
+                    {todos.filter(t => t.user_id === u.id).length}개 할 일
+                  </span>
+                  {!u.is_admin && (
+                    <button onClick={() => deleteUser(u.id)}
+                      className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2.5 py-1 rounded-lg transition shrink-0">
+                      삭제
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Todo list */}
+          {!loading && tab === 'todos' && (
+            <div className="space-y-2">
+              {todos.map(t => (
+                <div key={t.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-100 rounded-lg group">
+                  <div className={`w-4 h-4 rounded-full border-2 shrink-0 ${t.completed ? 'bg-indigo-400 border-indigo-400' : 'border-gray-300'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm truncate ${t.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>{t.text}</p>
+                    <p className="text-xs text-gray-400">{t.nickname} · {t.email}</p>
+                  </div>
+                  <button onClick={() => deleteTodo(t.id)}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition p-1">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {todos.length === 0 && <p className="text-center text-gray-400 text-sm py-12">할 일이 없습니다</p>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
     // TodoPage
     // ========================================
-    function TodoPage({ user, onLogout }) {
+    function TodoPage({ user, onLogout, onAdmin }) {
       const [todos, setTodos]   = useState([]);
       const [filter, setFilter] = useState('all');
       const [loading, setLoading] = useState(true);
@@ -195,12 +315,20 @@
               <h1 className="text-3xl font-light text-gray-800 tracking-tight">Todo</h1>
               <p className="text-xs text-gray-400 mt-0.5">{user.nickname}님의 목록</p>
             </div>
-            <button
-              onClick={onLogout}
-              className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg transition"
-            >
-              로그아웃
-            </button>
+            <div className="flex gap-2">
+              {onAdmin && (
+                <button onClick={onAdmin}
+                  className="text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg transition">
+                  관리자 패널
+                </button>
+              )}
+              <button
+                onClick={onLogout}
+                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg transition"
+              >
+                로그아웃
+              </button>
+            </div>
           </div>
 
           {/* Input */}
@@ -288,19 +416,40 @@
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
           if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('todo_token'); return null; }
-          return { id: payload.id, email: payload.email, nickname: payload.nickname };
+          return { id: payload.id, email: payload.email, nickname: payload.nickname, is_admin: payload.is_admin };
         } catch { return null; }
       });
+      // 관리자 로그인 시 기본적으로 관리자 패널 표시
+      const [page, setPage] = useState(() => {
+        const token = localStorage.getItem('todo_token');
+        if (!token) return 'todos';
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          return payload.is_admin ? 'admin' : 'todos';
+        } catch { return 'todos'; }
+      });
 
-      const handleLogin  = (u) => setUser(u);
+      const handleLogin = (u) => {
+        setUser(u);
+        setPage(u.is_admin ? 'admin' : 'todos');
+      };
       const handleLogout = () => {
         localStorage.removeItem('todo_token');
         setUser(null);
+        setPage('todos');
       };
 
-      return user
-        ? <TodoPage user={user} onLogout={handleLogout} />
-        : <AuthPage onLogin={handleLogin} />;
+      if (!user) return <AuthPage onLogin={handleLogin} />;
+      if (page === 'admin' && user.is_admin) {
+        return <AdminPage user={user} onLogout={handleLogout} onMyTodos={() => setPage('todos')} />;
+      }
+      return (
+        <TodoPage
+          user={user}
+          onLogout={handleLogout}
+          onAdmin={user.is_admin ? () => setPage('admin') : null}
+        />
+      );
     }
 
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
