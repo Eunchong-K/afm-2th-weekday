@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비밀 메시지 잠금 해제</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: #0a0a1a;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
+      20%, 40%, 60%, 80% { transform: translateX(6px); }
+    }
+
+    @keyframes fadeScaleIn {
+      0% { opacity: 0; transform: scale(0.8) translateY(20px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.1); }
+      50% { box-shadow: 0 0 30px rgba(139, 92, 246, 0.5), 0 0 80px rgba(139, 92, 246, 0.2); }
+    }
+
+    @keyframes floatParticle {
+      0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.3; }
+      50% { transform: translateY(-30px) rotate(180deg); opacity: 0.8; }
+    }
+
+    @keyframes unlockBounce {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.3); }
+      50% { transform: scale(0.9); }
+      70% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes bgShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .shake { animation: shake 0.5s ease-in-out; }
+    .fade-scale-in { animation: fadeScaleIn 0.8s ease-out forwards; }
+    .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+    .unlock-bounce { animation: unlockBounce 0.6s ease-out; }
+
+    .bg-animated {
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a1040 25%, #0d1030 50%, #1a0a2e 75%, #0a0a1a 100%);
+      background-size: 400% 400%;
+      animation: bgShift 15s ease infinite;
+    }
+
+    .glow-border {
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.15), inset 0 0 15px rgba(139, 92, 246, 0.05);
+    }
+
+    .input-glow:focus {
+      box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5), 0 0 20px rgba(139, 92, 246, 0.2);
+    }
+
+    .particle {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(139, 92, 246, 0.5);
+      animation: floatParticle 4s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    function LockIcon({ unlocked, className = "" }) {
+      if (unlocked) {
+        return (
+          <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+          </svg>
+        );
+      }
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      );
+    }
+
+    function EyeIcon({ visible }) {
+      if (visible) {
+        return (
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+        );
+      }
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    }
+
+    function Button({ children, onClick, variant = "primary", size = "md", disabled = false, className = "" }) {
+      const baseClasses = "font-medium rounded-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer";
+      const variants = {
+        primary: "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white focus:ring-violet-500 shadow-lg shadow-violet-500/25 hover:shadow-violet-500/40",
+        secondary: "bg-gray-800/80 hover:bg-gray-700/80 text-gray-300 border border-gray-700 hover:border-gray-600 focus:ring-gray-500",
+        danger: "bg-red-600/80 hover:bg-red-500/80 text-white focus:ring-red-500",
+        ghost: "bg-transparent hover:bg-white/5 text-gray-400 hover:text-gray-200 focus:ring-gray-500",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-base",
+        lg: "px-7 py-3.5 text-lg",
+      };
+
+      return (
+        <button
+          onClick={onClick}
+          disabled={disabled}
+          className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // ========================================
+    // 🧩 Floating Particles Background
+    // ========================================
+
+    function Particles() {
+      const particles = Array.from({ length: 20 }, (_, i) => ({
+        id: i,
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        delay: `${Math.random() * 4}s`,
+        size: Math.random() * 4 + 2,
+        opacity: Math.random() * 0.4 + 0.1,
+      }));
+
+      return (
+        <div className="fixed inset-0 pointer-events-none overflow-hidden">
+          {particles.map(p => (
+            <div
+              key={p.id}
+              className="particle"
+              style={{
+                left: p.left,
+                top: p.top,
+                animationDelay: p.delay,
+                width: `${p.size}px`,
+                height: `${p.size}px`,
+                opacity: p.opacity,
+              }}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Secret Message App
+    // ========================================
+
+    function SecretMessageApp() {
+      const [password, setPassword] = useState("");
+      const [showPassword, setShowPassword] = useState(false);
+      const [isUnlocked, setIsUnlocked] = useState(false);
+      const [isShaking, setIsShaking] = useState(false);
+      const [errorMsg, setErrorMsg] = useState("");
+      const [attempts, setAttempts] = useState(0);
+      const inputRef = useRef(null);
+
+      const CORRECT_PASSWORD = "secret123";
+      const SECRET_MESSAGE = "축하합니다! \u{1F389} 당신은 비밀 메시지를 발견했습니다. 이 메시지는 오직 선택받은 자만이 볼 수 있습니다.";
+
+      const handleSubmit = useCallback((e) => {
+        e.preventDefault();
+        if (password === CORRECT_PASSWORD) {
+          setIsUnlocked(true);
+          setErrorMsg("");
+        } else {
+          setIsShaking(true);
+          setAttempts(prev => prev + 1);
+          setErrorMsg("잘못된 비밀번호입니다. 다시 시도하세요.");
+          setTimeout(() => setIsShaking(false), 500);
+        }
+      }, [password]);
+
+      const handleReset = useCallback(() => {
+        setIsUnlocked(false);
+        setPassword("");
+        setErrorMsg("");
+        setShowPassword(false);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }, []);
+
+      useEffect(() => {
+        inputRef.current?.focus();
+      }, []);
+
+      return (
+        <div className="bg-animated min-h-screen flex items-center justify-center p-4 relative">
+          <Particles />
+
+          <div className="relative z-10 w-full max-w-md">
+            {/* Lock Icon */}
+            <div className="flex justify-center mb-8">
+              <div className={`
+                w-24 h-24 rounded-full flex items-center justify-center
+                ${isUnlocked
+                  ? "bg-gradient-to-br from-emerald-500/20 to-green-500/20 border border-emerald-500/40 shadow-lg shadow-emerald-500/20 unlock-bounce"
+                  : "bg-gradient-to-br from-violet-500/20 to-purple-500/20 border border-violet-500/30 pulse-glow"
+                }
+                transition-all duration-700
+              `}>
+                <LockIcon
+                  unlocked={isUnlocked}
+                  className={`w-12 h-12 transition-colors duration-500 ${isUnlocked ? "text-emerald-400" : "text-violet-400"}`}
+                />
+              </div>
+            </div>
+
+            {/* Title */}
+            <h1 className="text-center text-2xl sm:text-3xl font-bold text-white mb-2 tracking-tight">
+              비밀 메시지 잠금 해제
+            </h1>
+            <p className="text-center text-gray-500 text-sm mb-8">
+              비밀번호를 입력하여 숨겨진 메시지를 확인하세요
+            </p>
+
+            {/* Card */}
+            <div className={`glow-border rounded-2xl bg-gray-900/70 backdrop-blur-xl p-6 sm:p-8 ${isShaking ? "shake" : ""}`}>
+              {!isUnlocked ? (
+                <form onSubmit={handleSubmit}>
+                  {/* Password Input */}
+                  <label className="block text-sm font-medium text-gray-400 mb-2" htmlFor="password-input">
+                    비밀번호
+                  </label>
+                  <div className="relative mb-4">
+                    <input
+                      ref={inputRef}
+                      id="password-input"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); setErrorMsg(""); }}
+                      placeholder="비밀번호를 입력하세요..."
+                      className="w-full bg-gray-800/80 border border-gray-700 rounded-lg px-4 py-3 pr-12 text-white placeholder-gray-600 focus:outline-none input-glow transition-all duration-300"
+                      aria-label="비밀번호 입력"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1"
+                      aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 보기"}
+                    >
+                      <EyeIcon visible={showPassword} />
+                    </button>
+                  </div>
+
+                  {/* Error Message */}
+                  {errorMsg && (
+                    <div className="mb-4 flex items-center gap-2 text-red-400 text-sm">
+                      <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      <span>{errorMsg}</span>
+                      {attempts >= 3 && (
+                        <span className="text-gray-600 text-xs ml-auto">시도: {attempts}회</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Submit Button */}
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    disabled={!password.trim()}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <LockIcon unlocked={false} className="w-5 h-5" />
+                      잠금 해제
+                    </span>
+                  </Button>
+
+                  {/* Hint */}
+                  {attempts >= 5 && (
+                    <p className="text-center text-gray-600 text-xs mt-4">
+                      힌트: 비밀번호는 영어와 숫자의 조합입니다
+                    </p>
+                  )}
+                </form>
+              ) : (
+                <div className="fade-scale-in">
+                  {/* Success Header */}
+                  <div className="text-center mb-6">
+                    <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full px-4 py-1.5 text-sm font-medium mb-4">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      잠금 해제됨
+                    </div>
+                  </div>
+
+                  {/* Secret Message */}
+                  <div className="bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20 rounded-xl p-5 mb-6">
+                    <p className="text-gray-200 text-base leading-relaxed text-center">
+                      {SECRET_MESSAGE}
+                    </p>
+                  </div>
+
+                  {/* Reset Button */}
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="w-full"
+                    onClick={handleReset}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <LockIcon unlocked={false} className="w-5 h-5" />
+                      다시 잠그기
+                    </span>
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <p className="text-center text-gray-700 text-xs mt-6">
+              Secure Vault v1.0
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+
+    function App() {
+      return <SecretMessageApp />;
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

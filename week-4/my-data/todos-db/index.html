@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>할 일 목록</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ========================================
+    // TodoItem Component
+    // ========================================
+    function TodoItem({ todo, onToggle, onDelete }) {
+      return (
+        <li className="flex items-center gap-3 px-4 py-3 bg-white rounded-lg shadow-sm hover:shadow transition-shadow">
+          <input
+            type="checkbox"
+            checked={todo.done}
+            onChange={() => onToggle(todo)}
+            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+          />
+          <span
+            className={`flex-1 text-gray-800 ${
+              todo.done ? "line-through text-gray-400" : ""
+            }`}
+          >
+            {todo.text}
+          </span>
+          <button
+            onClick={() => onDelete(todo.id)}
+            className="text-red-400 hover:text-red-600 transition-colors text-sm px-2 py-1 rounded hover:bg-red-50"
+          >
+            삭제
+          </button>
+        </li>
+      );
+    }
+
+    // ========================================
+    // App Component
+    // ========================================
+    function App() {
+      const [users, setUsers] = useState([]);
+      const [selectedUserId, setSelectedUserId] = useState(null);
+      const [todos, setTodos] = useState([]);
+      const [input, setInput] = useState("");
+      const [loading, setLoading] = useState(true);
+
+      // Fetch users on mount
+      useEffect(() => {
+        fetch("/api/users")
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) {
+              setUsers(res.data);
+              if (res.data.length > 0) {
+                setSelectedUserId(res.data[0].id);
+              }
+            }
+          })
+          .catch((err) => console.error("Failed to fetch users:", err))
+          .finally(() => setLoading(false));
+      }, []);
+
+      // Fetch todos when selected user changes
+      useEffect(() => {
+        if (selectedUserId == null) return;
+        fetch(`/api/todos?user_id=${selectedUserId}`)
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) setTodos(res.data);
+          })
+          .catch((err) => console.error("Failed to fetch todos:", err));
+      }, [selectedUserId]);
+
+      const handleAdd = () => {
+        const text = input.trim();
+        if (!text || selectedUserId == null) return;
+        fetch("/api/todos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: selectedUserId, text }),
+        })
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) {
+              setTodos((prev) => [...prev, res.data]);
+              setInput("");
+            }
+          })
+          .catch((err) => console.error("Failed to add todo:", err));
+      };
+
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter") handleAdd();
+      };
+
+      const handleToggle = (todo) => {
+        fetch(`/api/todos/${todo.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ done: !todo.done }),
+        })
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) {
+              setTodos((prev) =>
+                prev.map((t) => (t.id === res.data.id ? res.data : t))
+              );
+            }
+          })
+          .catch((err) => console.error("Failed to toggle todo:", err));
+      };
+
+      const handleDelete = (id) => {
+        fetch(`/api/todos/${id}`, { method: "DELETE" })
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) {
+              setTodos((prev) => prev.filter((t) => t.id !== id));
+            }
+          })
+          .catch((err) => console.error("Failed to delete todo:", err));
+      };
+
+      const doneCount = todos.filter((t) => t.done).length;
+      const selectedUser = users.find((u) => u.id === selectedUserId);
+
+      if (loading) {
+        return (
+          <div className="max-w-lg mx-auto px-4 py-12 text-center text-gray-500">
+            로딩 중...
+          </div>
+        );
+      }
+
+      return (
+        <div className="max-w-lg mx-auto px-4 py-12">
+          <h1 className="text-3xl font-bold text-center text-gray-800 mb-8">
+            할 일 목록
+          </h1>
+
+          {/* User Selector */}
+          <div className="flex gap-2 mb-6 justify-center">
+            {users.map((user) => (
+              <button
+                key={user.id}
+                onClick={() => setSelectedUserId(user.id)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  selectedUserId === user.id
+                    ? "bg-blue-600 text-white shadow-md"
+                    : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                {user.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Input */}
+          <div className="flex gap-2 mb-6">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="새로운 할 일을 입력하세요"
+              className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800"
+            />
+            <button
+              onClick={handleAdd}
+              className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors"
+            >
+              추가
+            </button>
+          </div>
+
+          {/* Stats */}
+          <p className="text-sm text-gray-500 mb-3">
+            {selectedUser && <span className="font-medium text-gray-700">{selectedUser.name}</span>}
+            {" "}총 {todos.length}개 / 완료 {doneCount}개
+          </p>
+
+          {/* List */}
+          <ul className="flex flex-col gap-2">
+            {todos.map((todo) => (
+              <TodoItem
+                key={todo.id}
+                todo={todo}
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+              />
+            ))}
+            {todos.length === 0 && (
+              <li className="text-center text-gray-400 py-8">
+                할 일이 없습니다. 새로운 할 일을 추가해보세요!
+              </li>
+            )}
+          </ul>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Render
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
