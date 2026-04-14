@@ -406,6 +406,15 @@
       );
     }
 
+    // JWT 페이로드 디코딩 (한국어 등 유니코드 닉네임 대응)
+    function parseJWTPayload(token) {
+      try {
+        const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        return JSON.parse(new TextDecoder().decode(bytes));
+      } catch { return null; }
+    }
+
     // ========================================
     // App (라우터)
     // ========================================
@@ -413,20 +422,18 @@
       const [user, setUser] = useState(() => {
         const token = localStorage.getItem('todo_token');
         if (!token) return null;
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('todo_token'); return null; }
-          return { id: payload.id, email: payload.email, nickname: payload.nickname, is_admin: payload.is_admin };
-        } catch { return null; }
+        const payload = parseJWTPayload(token);
+        if (!payload) return null;
+        if (payload.exp * 1000 < Date.now()) { localStorage.removeItem('todo_token'); return null; }
+        return { id: payload.id, email: payload.email, nickname: payload.nickname, is_admin: payload.is_admin };
       });
       // 관리자 로그인 시 기본적으로 관리자 패널 표시
       const [page, setPage] = useState(() => {
         const token = localStorage.getItem('todo_token');
         if (!token) return 'todos';
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          return payload.is_admin ? 'admin' : 'todos';
-        } catch { return 'todos'; }
+        const payload = parseJWTPayload(token);
+        if (!payload) return 'todos';
+        return payload.is_admin ? 'admin' : 'todos';
       });
 
       const handleLogin = (u) => {
