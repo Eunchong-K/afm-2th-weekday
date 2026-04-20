@@ -11,8 +11,7 @@ const PORT = process.env.PORT || 3005;
 
 // ── Config ──────────────────────────────────────────────
 const JWT_SECRET    = process.env.JWT_SECRET || 'community-secret-2025';
-const DATABASE_URL  = process.env.DATABASE_URL
-  || 'postgresql://postgres.ewmsfpljitindhwddgsk:13mPYFs74U8FIu2X@aws-1-us-east-1.pooler.supabase.com:6543/postgres';
+const DATABASE_URL  = process.env.DATABASE_URL;
 
 // ── PostgreSQL 연결 ─────────────────────────────────────
 const pool = new Pool({
@@ -36,10 +35,12 @@ async function initDB() {
       user_id       TEXT NOT NULL REFERENCES community_users(id) ON DELETE CASCADE,
       nickname      TEXT NOT NULL,
       category      TEXT NOT NULL CHECK (category IN ('worry','compliment','cheer','poll')),
+      title         TEXT NOT NULL DEFAULT '(제목 없음)',
       content       TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 500),
       tags          TEXT[] NOT NULL DEFAULT '{}',
       empathy_count INTEGER NOT NULL DEFAULT 0,
-      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ
     );
 
     CREATE TABLE IF NOT EXISTS community_replies (
@@ -55,6 +56,10 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS comm_posts_empathy_idx    ON community_posts (empathy_count DESC);
     CREATE INDEX IF NOT EXISTS comm_replies_post_idx     ON community_replies (post_id, created_at ASC);
   `);
+
+  // 기존 테이블 마이그레이션
+  await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '(제목 없음)'`);
+  await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`);
 }
 
 // ── 헬퍼 ────────────────────────────────────────────────
@@ -64,9 +69,11 @@ function generateId() {
 
 const VALID_CATEGORIES = ['worry', 'compliment', 'cheer', 'poll'];
 
-function validatePost({ category, content, tags }) {
+function validatePost({ category, title, content, tags }) {
   if (!category || !VALID_CATEGORIES.includes(category))
     return 'category는 worry, compliment, cheer, poll 중 하나여야 합니다';
+  if (!title || title.trim().length < 1 || title.trim().length > 100)
+    return '제목은 1~100자 사이여야 합니다';
   if (!content || content.trim().length < 1 || content.trim().length > 500)
     return 'content는 1~500자 사이여야 합니다';
   if (tags !== undefined && (!Array.isArray(tags) || tags.length > 5))
@@ -207,6 +214,21 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 // 게시글 API
 // ═══════════════════════════════════════════════════════
 
+// GET /api/posts/:id (single post)
+app.get('/api/posts/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT p.*,
+             (SELECT COUNT(*)::int FROM community_replies r WHERE r.post_id = p.id) AS reply_count
+      FROM community_posts p WHERE p.id = $1
+    `, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ success: false, message: '게시글을 찾을 수 없습니다' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // GET /api/posts?sort=latest|empathy&category=...
 app.get('/api/posts', async (req, res) => {
   try {
@@ -240,13 +262,13 @@ app.post('/api/posts', requireAuth, async (req, res) => {
     const err = validatePost(req.body);
     if (err) return res.status(400).json({ success: false, message: err });
 
-    const { category, content, tags = [] } = req.body;
+    const { category, title, content, tags = [] } = req.body;
     const id = generateId();
 
     await pool.query(
-      `INSERT INTO community_posts (id, user_id, nickname, category, content, tags)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, req.user.id, req.user.nickname, category, content.trim(), tags]
+      `INSERT INTO community_posts (id, user_id, nickname, category, title, content, tags)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, req.user.id, req.user.nickname, category, title.trim(), content.trim(), tags]
     );
 
     const { rows } = await pool.query(
@@ -270,15 +292,18 @@ app.patch('/api/posts/:id', requireAuth, async (req, res) => {
     if (existing[0].user_id !== req.user.id)
       return res.status(403).json({ success: false, message: '본인 글만 수정할 수 있습니다' });
 
-    const { content, tags } = req.body;
+    const { title, content, tags } = req.body;
+    if (title !== undefined && (title.trim().length < 1 || title.trim().length > 100))
+      return res.status(400).json({ success: false, message: '제목은 1~100자 사이여야 합니다' });
     if (content !== undefined && (content.trim().length < 1 || content.trim().length > 500))
       return res.status(400).json({ success: false, message: 'content는 1~500자 사이여야 합니다' });
     if (tags !== undefined && (!Array.isArray(tags) || tags.length > 5))
       return res.status(400).json({ success: false, message: 'tags는 최대 5개까지 가능합니다' });
 
     await pool.query(
-      'UPDATE community_posts SET content = $1, tags = $2 WHERE id = $3',
+      'UPDATE community_posts SET title = $1, content = $2, tags = $3, updated_at = NOW() WHERE id = $4',
       [
+        title !== undefined ? title.trim() : existing[0].title,
         content !== undefined ? content.trim() : existing[0].content,
         tags !== undefined ? tags : existing[0].tags,
         req.params.id
