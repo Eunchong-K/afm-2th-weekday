@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>가계부 | Budget App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+                   "Malgun Gothic", "맑은 고딕", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+      min-height: 100vh;
+    }
+    /* Smooth transitions */
+    .fade-in {
+      animation: fadeIn 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    /* Hide number input spinners */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo, useReducer, useContext, createContext, useCallback } = React;
+
+    // ========================================
+    // Constants
+    // ========================================
+    const INCOME_CATEGORIES = ["급여", "부업", "이자/투자", "용돈", "환급/상여", "기타수입"];
+    const EXPENSE_CATEGORIES = ["식비", "교통", "주거/공과금", "쇼핑", "문화/여가", "의료/건강", "교육", "경조사", "기타지출"];
+    const ALL_CATEGORIES = [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES];
+
+    // Hex colors for SVG pie chart slices
+    const PIE_COLORS_INCOME  = ["#10b981","#34d399","#6ee7b7","#059669","#047857","#a7f3d0"];
+    const PIE_COLORS_EXPENSE = ["#ef4444","#f97316","#eab308","#ec4899","#8b5cf6","#06b6d4","#f43f5e","#a855f7","#14b8a6"];
+
+    const CATEGORY_COLORS = {
+      "급여": "bg-emerald-100 text-emerald-700",
+      "부업": "bg-teal-100 text-teal-700",
+      "이자/투자": "bg-green-100 text-green-700",
+      "용돈": "bg-lime-100 text-lime-700",
+      "환급/상여": "bg-cyan-100 text-cyan-700",
+      "기타수입": "bg-slate-100 text-slate-700",
+      "식비": "bg-orange-100 text-orange-700",
+      "교통": "bg-amber-100 text-amber-700",
+      "주거/공과금": "bg-red-100 text-red-700",
+      "쇼핑": "bg-pink-100 text-pink-700",
+      "문화/여가": "bg-purple-100 text-purple-700",
+      "의료/건강": "bg-rose-100 text-rose-700",
+      "교육": "bg-indigo-100 text-indigo-700",
+      "경조사": "bg-fuchsia-100 text-fuchsia-700",
+      "기타지출": "bg-slate-100 text-slate-700",
+    };
+
+    // ========================================
+    // Helpers
+    // ========================================
+    const todayStr = () => {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const currentMonthStr = () => {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      return `${yyyy}-${mm}`;
+    };
+
+    const formatKRW = (n) => {
+      const sign = n < 0 ? "-" : "";
+      return sign + "₩" + Math.abs(n).toLocaleString("ko-KR");
+    };
+
+    const formatDate = (iso) => {
+      const [y, m, d] = iso.split("-");
+      return `${y}.${m}.${d}`;
+    };
+
+    const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+    // ========================================
+    // API helpers
+    // ========================================
+    const api = {
+      getEntries: async () => {
+        const res = await fetch("/api/entries");
+        if (!res.ok) throw new Error("내역을 불러오지 못했습니다");
+        return res.json();
+      },
+      addEntry: async (entry) => {
+        const res = await fetch("/api/entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entry),
+        });
+        if (!res.ok) throw new Error("저장에 실패했습니다");
+        return res.json();
+      },
+      deleteEntry: async (id) => {
+        const res = await fetch(`/api/entries/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("삭제에 실패했습니다");
+      },
+    };
+
+    // ========================================
+    // Router Context + hash-based Router
+    // ========================================
+    const RouterContext = createContext({ path: "/register", navigate: () => {} });
+
+    function useRouter() {
+      return useContext(RouterContext);
+    }
+
+    function Router({ children }) {
+      const getPath = () => {
+        const h = window.location.hash || "#/register";
+        return h.replace(/^#/, "") || "/register";
+      };
+      const [path, setPath] = useState(getPath());
+
+      useEffect(() => {
+        const onHash = () => setPath(getPath());
+        window.addEventListener("hashchange", onHash);
+        if (!window.location.hash) window.location.hash = "#/register";
+        return () => window.removeEventListener("hashchange", onHash);
+      }, []);
+
+      const navigate = useCallback((to) => {
+        window.location.hash = "#" + to;
+      }, []);
+
+      return (
+        <RouterContext.Provider value={{ path, navigate }}>
+          {children}
+        </RouterContext.Provider>
+      );
+    }
+
+    // ========================================
+    // Design System Components
+    // ========================================
+    function Button({ variant = "primary", size = "md", className = "", disabled, children, ...rest }) {
+      const base = "inline-flex items-center justify-center font-semibold rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed";
+      const variants = {
+        primary:   "bg-indigo-900 text-white hover:bg-indigo-800 focus:ring-indigo-500",
+        secondary: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus:ring-slate-400",
+        danger:    "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500",
+        ghost:     "bg-transparent text-slate-600 hover:bg-slate-100",
+        success:   "bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-500",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-4 py-2 text-sm",
+        lg: "px-5 py-3 text-base",
+      };
+      return (
+        <button
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+          disabled={disabled}
+          {...rest}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, error, className = "", ...rest }) {
+      return (
+        <div className="w-full">
+          {label && <label className="block text-xs font-semibold text-slate-600 mb-1.5">{label}</label>}
+          <input
+            className={`w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition ${error ? "border-red-400" : ""} ${className}`}
+            {...rest}
+          />
+          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        </div>
+      );
+    }
+
+    function Select({ label, error, className = "", children, ...rest }) {
+      return (
+        <div className="w-full">
+          {label && <label className="block text-xs font-semibold text-slate-600 mb-1.5">{label}</label>}
+          <select
+            className={`w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition ${error ? "border-red-400" : ""} ${className}`}
+            {...rest}
+          >
+            {children}
+          </select>
+          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        </div>
+      );
+    }
+
+    function Textarea({ label, error, className = "", ...rest }) {
+      return (
+        <div className="w-full">
+          {label && <label className="block text-xs font-semibold text-slate-600 mb-1.5">{label}</label>}
+          <textarea
+            className={`w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition resize-none ${error ? "border-red-400" : ""} ${className}`}
+            {...rest}
+          />
+          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        </div>
+      );
+    }
+
+    function Card({ className = "", children }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Badge({ type = "neutral", className = "", children }) {
+      const variants = {
+        income:  "bg-emerald-100 text-emerald-700 border border-emerald-200",
+        expense: "bg-red-100 text-red-700 border border-red-200",
+        neutral: "bg-slate-100 text-slate-700 border border-slate-200",
+      };
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full ${variants[type]} ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    function EmptyState({ icon = "📭", title, hint }) {
+      return (
+        <div className="py-12 text-center text-slate-400">
+          <div className="text-4xl mb-2">{icon}</div>
+          <div className="font-semibold text-slate-500">{title}</div>
+          {hint && <div className="text-xs mt-1">{hint}</div>}
+        </div>
+      );
+    }
+
+    // ========================================
+    // Common/Layout Components
+    // ========================================
+    function Header() {
+      return (
+        <header className="bg-gradient-to-br from-indigo-900 via-indigo-800 to-blue-700 text-white">
+          <div className="max-w-lg mx-auto px-5 pt-7 pb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center text-xl">
+                💰
+              </div>
+              <div>
+                <h1 className="text-lg font-bold leading-tight">가계부</h1>
+                <p className="text-xs text-indigo-200 leading-tight">수입과 지출을 한눈에</p>
+              </div>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    function TabBar() {
+      const { path, navigate } = useRouter();
+      const tabs = [
+        { to: "/register",  label: "등록", icon: "➕" },
+        { to: "/list",      label: "내역", icon: "📋" },
+        { to: "/stats",     label: "통계", icon: "📊" },
+      ];
+      return (
+        <nav className="sticky bottom-0 z-10 bg-white border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          <div className="max-w-lg mx-auto grid grid-cols-3">
+            {tabs.map((t) => {
+              const active = path === t.to;
+              return (
+                <button
+                  key={t.to}
+                  onClick={() => navigate(t.to)}
+                  className={`py-3 flex flex-col items-center gap-0.5 text-xs font-semibold transition-colors ${active ? "text-indigo-900" : "text-slate-400"}`}
+                >
+                  <span className="text-lg">{t.icon}</span>
+                  <span>{t.label}</span>
+                  {active && <span className="w-8 h-0.5 bg-indigo-900 rounded-full mt-0.5" />}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      );
+    }
+
+    function SummaryCards({ entries, monthLabel }) {
+      const totals = useMemo(() => {
+        let income = 0, expense = 0;
+        entries.forEach((e) => {
+          if (e.type === "income") income += Number(e.amount);
+          else expense += Number(e.amount);
+        });
+        return { income, expense, net: income - expense };
+      }, [entries]);
+
+      return (
+        <div className="max-w-lg mx-auto px-5 -mt-4">
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-slate-500">{monthLabel} 요약</p>
+              <Badge type="neutral">{entries.length}건</Badge>
+            </div>
+            <div className="flex items-baseline gap-2 mb-4">
+              <span className={`text-2xl font-extrabold ${totals.net >= 0 ? "text-indigo-900" : "text-red-600"}`}>
+                {formatKRW(totals.net)}
+              </span>
+              <span className="text-xs text-slate-400">순액</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
+                <p className="text-[11px] font-semibold text-emerald-700 mb-0.5">수입</p>
+                <p className="text-base font-bold text-emerald-700">{formatKRW(totals.income)}</p>
+              </div>
+              <div className="rounded-xl bg-red-50 border border-red-100 p-3">
+                <p className="text-[11px] font-semibold text-red-700 mb-0.5">지출</p>
+                <p className="text-base font-bold text-red-700">{formatKRW(totals.expense)}</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Page: Register
+    // ========================================
+    function RegisterPage({ onAdd }) {
+      const { navigate } = useRouter();
+      const [date, setDate] = useState(todayStr());
+      const [type, setType] = useState("expense");
+      const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+      const [amount, setAmount] = useState("");
+      const [memo, setMemo] = useState("");
+      const [errors, setErrors] = useState({});
+      const [flash, setFlash] = useState(null);
+
+      // When type changes, auto-select first category of that type
+      useEffect(() => {
+        const list = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+        if (!list.includes(category)) setCategory(list[0]);
+      }, [type]);
+
+      const [submitting, setSubmitting] = useState(false);
+
+      const submit = async (e) => {
+        e.preventDefault();
+        const errs = {};
+        if (!date) errs.date = "날짜를 입력해주세요";
+        const amt = Number(amount);
+        if (!amount || isNaN(amt) || amt <= 0) errs.amount = "0보다 큰 금액을 입력해주세요";
+        if (!category) errs.category = "카테고리를 선택해주세요";
+        if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+        setErrors({});
+        setSubmitting(true);
+        try {
+          await onAdd({ id: uid(), date, type, category, amount: amt, memo: memo.trim() });
+          setFlash("등록이 완료되었습니다.");
+          setAmount("");
+          setMemo("");
+          setTimeout(() => setFlash(null), 1500);
+        } catch {
+          setFlash("❌ 저장에 실패했습니다. 다시 시도해주세요.");
+          setTimeout(() => setFlash(null), 2500);
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      const currentCats = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+
+      return (
+        <div className="max-w-lg mx-auto px-5 pt-6 pb-6 fade-in">
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-slate-800">새 내역 등록</h2>
+              <Badge type={type}>{type === "income" ? "수입" : "지출"}</Badge>
+            </div>
+
+            <form onSubmit={submit} className="space-y-4">
+              {/* Type switcher */}
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 rounded-xl p-1">
+                <button
+                  type="button"
+                  onClick={() => setType("income")}
+                  className={`py-2 rounded-lg text-sm font-semibold transition ${type === "income" ? "bg-emerald-600 text-white shadow" : "text-slate-500"}`}
+                >
+                  수입
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType("expense")}
+                  className={`py-2 rounded-lg text-sm font-semibold transition ${type === "expense" ? "bg-red-600 text-white shadow" : "text-slate-500"}`}
+                >
+                  지출
+                </button>
+              </div>
+
+              <Input
+                label="날짜"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                error={errors.date}
+              />
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">금액</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">₩</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="numeric"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0"
+                    className={`w-full rounded-xl border border-slate-300 pl-8 pr-3.5 py-2.5 text-sm text-right font-semibold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition ${errors.amount ? "border-red-400" : ""}`}
+                  />
+                </div>
+                {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
+                {amount && !isNaN(Number(amount)) && Number(amount) > 0 && (
+                  <p className="text-[11px] text-slate-400 mt-1">{formatKRW(Number(amount))}</p>
+                )}
+              </div>
+
+              <Select
+                label="카테고리"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                error={errors.category}
+              >
+                {currentCats.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </Select>
+
+              <Textarea
+                label="메모"
+                rows={3}
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="선택 사항 — 예) 편의점에서 간식 구매"
+              />
+
+              <div className="flex gap-2 pt-1">
+                <Button type="submit" size="lg" className="flex-1" disabled={submitting}>
+                  {submitting ? "저장 중…" : "저장하기"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="lg"
+                  onClick={() => navigate("/list")}
+                >
+                  내역 보기
+                </Button>
+              </div>
+            </form>
+
+            {flash && (
+              <div className="mt-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-semibold px-4 py-2 text-center">
+                ✅ {flash}
+              </div>
+            )}
+          </Card>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Page: List
+    // ========================================
+    function ListPage({ entries, onDelete }) {
+      const [monthFilter, setMonthFilter] = useState(currentMonthStr());
+      const [typeFilter, setTypeFilter] = useState("all");
+      const [categoryFilter, setCategoryFilter] = useState("all");
+
+      // reset category when type changes
+      useEffect(() => { setCategoryFilter("all"); }, [typeFilter]);
+
+      const availableCategories = useMemo(() => {
+        if (typeFilter === "income")  return INCOME_CATEGORIES;
+        if (typeFilter === "expense") return EXPENSE_CATEGORIES;
+        return ALL_CATEGORIES;
+      }, [typeFilter]);
+
+      const filtered = useMemo(() => {
+        return entries
+          .filter((e) => !monthFilter || e.date.startsWith(monthFilter))
+          .filter((e) => typeFilter === "all" || e.type === typeFilter)
+          .filter((e) => categoryFilter === "all" || e.category === categoryFilter)
+          .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+      }, [entries, monthFilter, typeFilter, categoryFilter]);
+
+      const monthLabel = monthFilter
+        ? `${monthFilter.slice(0, 4)}년 ${monthFilter.slice(5, 7)}월`
+        : "전체";
+
+      return (
+        <div className="fade-in">
+          <SummaryCards entries={filtered} monthLabel={monthLabel} />
+
+          <div className="max-w-lg mx-auto px-5 mt-5 pb-6 space-y-4">
+            {/* Filters */}
+            <Card className="p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="월 선택"
+                  type="month"
+                  value={monthFilter}
+                  onChange={(e) => setMonthFilter(e.target.value)}
+                />
+                <Select
+                  label="유형"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                >
+                  <option value="all">전체</option>
+                  <option value="income">수입</option>
+                  <option value="expense">지출</option>
+                </Select>
+              </div>
+              <div className="mt-3">
+                <Select
+                  label="카테고리"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="all">전체 카테고리</option>
+                  {availableCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </Select>
+              </div>
+            </Card>
+
+            {/* List */}
+            <Card className="p-2">
+              {filtered.length === 0 ? (
+                <EmptyState title="내역이 없습니다" hint="등록 탭에서 새 내역을 추가해보세요" />
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {filtered.map((e) => (
+                    <li key={e.id} className="p-3 flex items-center gap-3 hover:bg-slate-50 rounded-xl transition">
+                      <div className={`w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center text-sm font-bold ${e.type === "income" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {e.type === "income" ? "＋" : "－"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${CATEGORY_COLORS[e.category] || "bg-slate-100 text-slate-700"}`}>
+                            {e.category}
+                          </span>
+                          <span className="text-[11px] text-slate-400">{formatDate(e.date)}</span>
+                        </div>
+                        <p className="text-sm text-slate-700 truncate mt-0.5">
+                          {e.memo || <span className="text-slate-400 italic">메모 없음</span>}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-sm font-bold ${e.type === "income" ? "text-emerald-600" : "text-red-600"}`}>
+                          {e.type === "income" ? "+" : "-"}{formatKRW(Number(e.amount)).replace("₩", "₩")}
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (window.confirm("이 내역을 삭제할까요?")) onDelete(e.id);
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-red-500 transition mt-0.5"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Pie (Donut) Chart
+    // ========================================
+    function polarXY(cx, cy, r, deg) {
+      const rad = ((deg - 90) * Math.PI) / 180;
+      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+    }
+
+    function slicePath(cx, cy, outerR, innerR, startDeg, endDeg) {
+      // clamp full-circle to avoid degenerate arc
+      const span = Math.min(endDeg - startDeg, 359.99);
+      const end = startDeg + span;
+      const o1 = polarXY(cx, cy, outerR, startDeg);
+      const o2 = polarXY(cx, cy, outerR, end);
+      const i1 = polarXY(cx, cy, innerR, end);
+      const i2 = polarXY(cx, cy, innerR, startDeg);
+      const large = span > 180 ? 1 : 0;
+      return [
+        `M ${o1.x} ${o1.y}`,
+        `A ${outerR} ${outerR} 0 ${large} 1 ${o2.x} ${o2.y}`,
+        `L ${i1.x} ${i1.y}`,
+        `A ${innerR} ${innerR} 0 ${large} 0 ${i2.x} ${i2.y}`,
+        "Z",
+      ].join(" ");
+    }
+
+    function PieChart({ data, colors, label, total }) {
+      const SIZE = 180;
+      const cx = SIZE / 2, cy = SIZE / 2;
+      const OUTER = 78, INNER = 46;
+      const [hovered, setHovered] = useState(null);
+
+      if (!data || data.length === 0) return null;
+
+      let cumDeg = 0;
+      const slices = data.map((d, i) => {
+        const deg = (d.total / total) * 360;
+        const slice = { ...d, startDeg: cumDeg, endDeg: cumDeg + deg, color: colors[i % colors.length] };
+        cumDeg += deg;
+        return slice;
+      });
+
+      return (
+        <div className="flex flex-col items-center">
+          <p className="text-xs font-bold text-slate-500 mb-2">{label}</p>
+          <div className="relative" style={{ width: SIZE, height: SIZE }}>
+            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+              {slices.map((s, i) => (
+                <path
+                  key={s.category}
+                  d={slicePath(cx, cy, hovered === i ? OUTER + 5 : OUTER, INNER, s.startDeg, s.endDeg)}
+                  fill={s.color}
+                  stroke="white"
+                  strokeWidth="1.5"
+                  style={{ transition: "d 0.15s ease", cursor: "pointer" }}
+                  onMouseEnter={() => setHovered(i)}
+                  onMouseLeave={() => setHovered(null)}
+                  onTouchStart={() => setHovered(i)}
+                  onTouchEnd={() => setHovered(null)}
+                />
+              ))}
+              {/* center text */}
+              <text x={cx} y={cy - 6} textAnchor="middle" fontSize="11" fill="#64748b" fontWeight="600">
+                {hovered !== null ? slices[hovered].category : "합계"}
+              </text>
+              <text x={cx} y={cy + 10} textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="700">
+                {hovered !== null
+                  ? `${((slices[hovered].total / total) * 100).toFixed(1)}%`
+                  : formatKRW(total)}
+              </text>
+            </svg>
+          </div>
+          {/* legend */}
+          <ul className="mt-2 w-full space-y-1">
+            {slices.map((s, i) => (
+              <li key={s.category} className="flex items-center gap-1.5 text-[11px]">
+                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                <span className="flex-1 truncate text-slate-600">{s.category}</span>
+                <span className="font-semibold text-slate-700">
+                  {((s.total / total) * 100).toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Page: Stats
+    // ========================================
+    function StatsPage({ entries }) {
+      const [monthFilter, setMonthFilter] = useState(currentMonthStr());
+      const [typeFilter, setTypeFilter] = useState("expense");
+
+      const filtered = useMemo(() => {
+        return entries
+          .filter((e) => !monthFilter || e.date.startsWith(monthFilter))
+          .filter((e) => typeFilter === "all" || e.type === typeFilter);
+      }, [entries, monthFilter, typeFilter]);
+
+      const byCategory = useMemo(() => {
+        const map = new Map();
+        filtered.forEach((e) => {
+          const key = e.category;
+          map.set(key, (map.get(key) || 0) + Number(e.amount));
+        });
+        const arr = Array.from(map.entries()).map(([category, total]) => ({ category, total }));
+        arr.sort((a, b) => b.total - a.total);
+        return arr;
+      }, [filtered]);
+
+      // separate data for income / expense pie charts
+      const incomeData = useMemo(() => {
+        const map = new Map();
+        entries
+          .filter((e) => (!monthFilter || e.date.startsWith(monthFilter)) && e.type === "income")
+          .forEach((e) => map.set(e.category, (map.get(e.category) || 0) + Number(e.amount)));
+        return Array.from(map.entries())
+          .map(([category, total]) => ({ category, total }))
+          .sort((a, b) => b.total - a.total);
+      }, [entries, monthFilter]);
+
+      const expenseData = useMemo(() => {
+        const map = new Map();
+        entries
+          .filter((e) => (!monthFilter || e.date.startsWith(monthFilter)) && e.type === "expense")
+          .forEach((e) => map.set(e.category, (map.get(e.category) || 0) + Number(e.amount)));
+        return Array.from(map.entries())
+          .map(([category, total]) => ({ category, total }))
+          .sort((a, b) => b.total - a.total);
+      }, [entries, monthFilter]);
+
+      const incomeTotal  = incomeData.reduce((s, d) => s + d.total, 0);
+      const expenseTotal = expenseData.reduce((s, d) => s + d.total, 0);
+
+      const grandTotal = byCategory.reduce((s, r) => s + r.total, 0);
+      const maxTotal = byCategory.length > 0 ? byCategory[0].total : 0;
+
+      const monthLabel = monthFilter
+        ? `${monthFilter.slice(0, 4)}년 ${monthFilter.slice(5, 7)}월`
+        : "전체";
+
+      const barColor = (category) => {
+        if (typeFilter === "all") {
+          return INCOME_CATEGORIES.includes(category) ? "bg-emerald-500" : "bg-red-500";
+        }
+        return typeFilter === "income" ? "bg-emerald-500" : "bg-red-500";
+      };
+
+      return (
+        <div className="fade-in">
+          <SummaryCards entries={filtered} monthLabel={monthLabel} />
+
+          <div className="max-w-lg mx-auto px-5 mt-5 pb-6 space-y-4">
+            {/* Filters */}
+            <Card className="p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="월 선택"
+                  type="month"
+                  value={monthFilter}
+                  onChange={(e) => setMonthFilter(e.target.value)}
+                />
+                <Select
+                  label="유형"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                >
+                  <option value="all">전체</option>
+                  <option value="income">수입</option>
+                  <option value="expense">지출</option>
+                </Select>
+              </div>
+            </Card>
+
+            {/* Pie Charts */}
+            {(incomeData.length > 0 || expenseData.length > 0) && (
+              <Card className="p-5">
+                <h3 className="text-sm font-bold text-slate-800 mb-4">수입 · 지출 비율</h3>
+                <div className={`grid gap-6 ${incomeData.length > 0 && expenseData.length > 0 ? "grid-cols-2" : "grid-cols-1 place-items-center"}`}>
+                  {incomeData.length > 0 && (
+                    <PieChart
+                      data={incomeData}
+                      colors={PIE_COLORS_INCOME}
+                      label="수입"
+                      total={incomeTotal}
+                    />
+                  )}
+                  {expenseData.length > 0 && (
+                    <PieChart
+                      data={expenseData}
+                      colors={PIE_COLORS_EXPENSE}
+                      label="지출"
+                      total={expenseTotal}
+                    />
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Bar Chart */}
+            <Card className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-slate-800">카테고리별 통계</h3>
+                <Badge type="neutral">{byCategory.length}개 카테고리</Badge>
+              </div>
+
+              {byCategory.length === 0 ? (
+                <EmptyState
+                  icon="📊"
+                  title="표시할 데이터가 없습니다"
+                  hint="필터를 변경하거나 내역을 추가해보세요"
+                />
+              ) : (
+                <ul className="space-y-3">
+                  {byCategory.map((row) => {
+                    const percent = maxTotal > 0 ? (row.total / maxTotal) * 100 : 0;
+                    const share = grandTotal > 0 ? ((row.total / grandTotal) * 100).toFixed(1) : "0.0";
+                    return (
+                      <li key={row.category}>
+                        <div className="flex justify-between items-baseline mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${CATEGORY_COLORS[row.category] || "bg-slate-100 text-slate-700"}`}>
+                              {row.category}
+                            </span>
+                            <span className="text-[11px] text-slate-400">{share}%</span>
+                          </div>
+                          <span className="text-sm font-bold text-slate-700">
+                            {formatKRW(row.total)}
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={`h-2 rounded-full transition-all duration-500 ${barColor(row.category)}`}
+                            style={{ width: `${Math.max(percent, 3)}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+
+            {/* Summary table */}
+            {byCategory.length > 0 && (
+              <Card className="overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-500 text-xs">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-semibold">카테고리</th>
+                      <th className="text-right px-4 py-2 font-semibold">합계</th>
+                      <th className="text-right px-4 py-2 font-semibold">비중</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {byCategory.map((row) => (
+                      <tr key={row.category}>
+                        <td className="px-4 py-2 text-slate-700">{row.category}</td>
+                        <td className="px-4 py-2 text-right font-semibold text-slate-700">
+                          {formatKRW(row.total)}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-500">
+                          {grandTotal > 0 ? ((row.total / grandTotal) * 100).toFixed(1) : "0.0"}%
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-50 font-bold">
+                      <td className="px-4 py-2 text-slate-700">합계</td>
+                      <td className="px-4 py-2 text-right text-slate-900">{formatKRW(grandTotal)}</td>
+                      <td className="px-4 py-2 text-right text-slate-500">100%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </Card>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // App (root)
+    // ========================================
+    function App() {
+      const [entries, setEntries] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [fetchError, setFetchError] = useState(null);
+
+      const fetchEntries = useCallback(async () => {
+        try {
+          setLoading(true);
+          setFetchError(null);
+          const data = await api.getEntries();
+          setEntries(data);
+        } catch (e) {
+          setFetchError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+      const addEntry = async (entry) => {
+        const created = await api.addEntry(entry);
+        setEntries((prev) => [created, ...prev]);
+      };
+
+      const deleteEntry = async (id) => {
+        await api.deleteEntry(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+      };
+
+      return (
+        <Router>
+          <div className="flex flex-col min-h-screen">
+            <Header />
+
+            <main className="flex-1 pb-4">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+                  <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3" />
+                  <p className="text-sm">불러오는 중…</p>
+                </div>
+              ) : fetchError ? (
+                <div className="max-w-lg mx-auto px-5 pt-8">
+                  <div className="rounded-2xl bg-red-50 border border-red-200 p-5 text-center">
+                    <p className="text-red-600 font-semibold mb-2">서버 연결 오류</p>
+                    <p className="text-sm text-red-500 mb-4">{fetchError}</p>
+                    <Button onClick={fetchEntries}>다시 시도</Button>
+                  </div>
+                </div>
+              ) : (
+                <RouteSwitch entries={entries} onAdd={addEntry} onDelete={deleteEntry} />
+              )}
+            </main>
+
+            <TabBar />
+          </div>
+        </Router>
+      );
+    }
+
+    function RouteSwitch({ entries, onAdd, onDelete }) {
+      const { path } = useRouter();
+      if (path === "/register") return <RegisterPage onAdd={onAdd} />;
+      if (path === "/list")     return <ListPage entries={entries} onDelete={onDelete} />;
+      if (path === "/stats")    return <StatsPage entries={entries} />;
+      return <RegisterPage onAdd={onAdd} />;
+    }
+
+    // ========================================
+    // Render
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

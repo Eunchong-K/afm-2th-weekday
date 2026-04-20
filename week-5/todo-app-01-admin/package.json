@@ -1,0 +1,16 @@
+{
+  "name": "todo-app-01-admin",
+  "version": "1.0.0",
+  "description": "Todo App Admin Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.4.5"
+  }
+}
