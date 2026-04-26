@@ -1,0 +1,16 @@
+{
+  "name": "apnea-shop-admin",
+  "version": "1.0.0",
+  "description": "APNEA Free Diving Shop - Admin Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.1",
+    "imagekit": "^5.2.0",
+    "pg": "^8.13.1"
+  }
+}

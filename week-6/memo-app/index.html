@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memo App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    /* Smooth transitions for modern feel */
+    * { -webkit-tap-highlight-color: transparent; }
+    .scroll-thin::-webkit-scrollbar { width: 6px; }
+    .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .scroll-thin::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
+    textarea { resize: none; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.2s ease-out; }
+  </style>
+  <!--
+    === Supabase SQL Schema ===
+    Run the following SQL in your Supabase SQL Editor before first use:
+
+    CREATE TABLE memo_app_memos (
+      id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+      title text NOT NULL DEFAULT '',
+      content text NOT NULL DEFAULT '',
+      created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now()
+    );
+    ALTER TABLE memo_app_memos ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow all" ON memo_app_memos FOR ALL USING (true) WITH CHECK (true);
+
+    Project ref: ewmsfpljitindhwddgsk
+    URL: https://ewmsfpljitindhwddgsk.supabase.co
+    Enter your anon/public key in the app's settings (gear icon).
+  -->
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks & Config
+    // ========================================
+    const { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } = React;
+
+    const SUPABASE_URL = 'https://ewmsfpljitindhwddgsk.supabase.co';
+    const TABLE = 'memo_app_memos';
+    const LS_KEYS = {
+      anonKey: 'memo_app_supabase_anon_key',
+      memos: 'memo_app_memos_local',
+    };
+
+    // ========================================
+    // Utility Helpers
+    // ========================================
+    const uuid = () => {
+      if (crypto && crypto.randomUUID) return crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    };
+
+    const nowISO = () => new Date().toISOString();
+
+    const formatDate = (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const today = new Date();
+      const isSameDay = d.toDateString() === today.toDateString();
+      if (isSameDay) {
+        return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+      }
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return '어제';
+      return d.toLocaleDateString('ko-KR', { year: '2-digit', month: '2-digit', day: '2-digit' });
+    };
+
+    const formatFullDate = (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleString('ko-KR', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    };
+
+    const previewText = (s, n = 60) => {
+      if (!s) return '';
+      const t = s.trim().replace(/\s+/g, ' ');
+      return t.length > n ? t.slice(0, n) + '…' : t;
+    };
+
+    // ========================================
+    // Supabase Client (lazy)
+    // ========================================
+    let sbClient = null;
+    const getSupabase = (anonKey) => {
+      if (!anonKey) return null;
+      if (sbClient && sbClient.__key === anonKey) return sbClient;
+      try {
+        const client = window.supabase.createClient(SUPABASE_URL, anonKey, {
+          auth: { persistSession: false },
+        });
+        client.__key = anonKey;
+        sbClient = client;
+        return client;
+      } catch (e) {
+        console.error('Failed to create Supabase client:', e);
+        return null;
+      }
+    };
+
+    // ========================================
+    // Storage Adapter — Supabase or localStorage
+    // ========================================
+    const makeStorage = (anonKey) => {
+      const sb = getSupabase(anonKey);
+      const useRemote = !!sb;
+
+      const localList = () => {
+        try {
+          const raw = localStorage.getItem(LS_KEYS.memos);
+          const parsed = raw ? JSON.parse(raw) : [];
+          // Normalize: ensure images field is always an array
+          return parsed.map(m => ({ ...m, images: Array.isArray(m.images) ? m.images : [] }));
+        } catch {
+          return [];
+        }
+      };
+      const localSave = (arr) => localStorage.setItem(LS_KEYS.memos, JSON.stringify(arr));
+
+      return {
+        mode: useRemote ? 'supabase' : 'local',
+        async list() {
+          if (useRemote) {
+            const { data, error } = await sb
+              .from(TABLE)
+              .select('*')
+              .order('updated_at', { ascending: false });
+            if (error) throw error;
+            return data || [];
+          }
+          const items = localList();
+          items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+          return items;
+        },
+        async create(memo) {
+          const row = {
+            id: uuid(),
+            title: memo.title || '',
+            content: memo.content || '',
+            images: memo.images || [],
+            created_at: nowISO(),
+            updated_at: nowISO(),
+          };
+          if (useRemote) {
+            const { data, error } = await sb
+              .from(TABLE)
+              .insert({ title: row.title, content: row.content, images: row.images })
+              .select()
+              .single();
+            if (error) throw error;
+            return data;
+          }
+          const items = localList();
+          items.unshift(row);
+          localSave(items);
+          return row;
+        },
+        async update(id, patch) {
+          if (useRemote) {
+            const { data, error } = await sb
+              .from(TABLE)
+              .update({ ...patch, updated_at: nowISO() })
+              .eq('id', id)
+              .select()
+              .single();
+            if (error) throw error;
+            return data;
+          }
+          const items = localList();
+          const idx = items.findIndex(m => m.id === id);
+          if (idx >= 0) {
+            items[idx] = { ...items[idx], ...patch, updated_at: nowISO() };
+            localSave(items);
+            return items[idx];
+          }
+          throw new Error('Not found');
+        },
+        async remove(id) {
+          if (useRemote) {
+            const { error } = await sb.from(TABLE).delete().eq('id', id);
+            if (error) throw error;
+            return true;
+          }
+          const items = localList().filter(m => m.id !== id);
+          localSave(items);
+          return true;
+        },
+      };
+    };
+
+    // ========================================
+    // Design System Components
+    // ========================================
+    const Button = ({ variant = 'primary', size = 'md', disabled, onClick, className = '', children, title, type = 'button' }) => {
+      const base = 'inline-flex items-center justify-center gap-1.5 font-medium rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-40 disabled:cursor-not-allowed';
+      const variants = {
+        primary: 'bg-amber-500 hover:bg-amber-600 text-white focus:ring-amber-400',
+        secondary: 'bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 focus:ring-gray-300',
+        danger: 'bg-red-500 hover:bg-red-600 text-white focus:ring-red-400',
+        ghost: 'bg-transparent hover:bg-gray-200 text-gray-700 focus:ring-gray-300',
+      };
+      const sizes = {
+        sm: 'text-xs px-2.5 py-1.5',
+        md: 'text-sm px-3.5 py-2',
+        lg: 'text-base px-4 py-2.5',
+      };
+      return (
+        <button
+          type={type}
+          onClick={onClick}
+          disabled={disabled}
+          title={title}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    };
+
+    const IconButton = ({ onClick, title, className = '', children, disabled }) => (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        disabled={disabled}
+        className={`w-9 h-9 flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+      >
+        {children}
+      </button>
+    );
+
+    const Input = ({ label, error, className = '', ...props }) => (
+      <div className="w-full">
+        {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
+        <input
+          {...props}
+          className={`w-full px-3 py-2 border rounded-lg outline-none transition-colors ${error ? 'border-red-400 focus:ring-2 focus:ring-red-200' : 'border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200'} ${className}`}
+        />
+        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      </div>
+    );
+
+    const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
+      useEffect(() => {
+        if (!isOpen) return;
+        const handler = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+      }, [isOpen, onClose]);
+
+      if (!isOpen) return null;
+      const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl' };
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm fade-in" onClick={onClose}>
+          <div className={`bg-white rounded-2xl shadow-2xl w-full ${widths[size]} overflow-hidden`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+              <IconButton onClick={onClose} title="닫기">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </IconButton>
+            </div>
+            <div className="p-5">{children}</div>
+          </div>
+        </div>
+      );
+    };
+
+    const Badge = ({ children, variant = 'default' }) => {
+      const variants = {
+        default: 'bg-gray-100 text-gray-700',
+        success: 'bg-emerald-100 text-emerald-700',
+        warning: 'bg-amber-100 text-amber-700',
+      };
+      return <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${variants[variant]}`}>{children}</span>;
+    };
+
+    // Icons (inline SVGs)
+    const Icon = {
+      Plus: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>,
+      Trash: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M10 7V5a2 2 0 012-2h0a2 2 0 012 2v2"/></svg>,
+      Search: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>,
+      Gear: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+      Note: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>,
+      Cloud: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>,
+      Drive: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H6a2 2 0 00-2 2z"/></svg>,
+      Check: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>,
+      Spinner: (p) => <svg {...p} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>,
+      Image: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
+      X: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>,
+    };
+
+    // ========================================
+    // ImageKit Upload Helper
+    // ========================================
+    async function uploadImageToImageKit(file) {
+      const authRes = await fetch('/auth');
+      if (!authRes.ok) throw new Error('인증 서버 오류 (/auth)');
+      const { data: auth } = await authRes.json();
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('fileName', `memo-${Date.now()}-${file.name}`);
+      formData.append('publicKey', auth.publicKey);
+      formData.append('signature', auth.signature);
+      formData.append('expire', String(auth.expire));
+      formData.append('token', auth.token);
+
+      const res = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || '업로드 실패');
+      }
+
+      return await res.json(); // { url, thumbnailUrl, fileId, ... }
+    }
+
+    // ========================================
+    // Settings Modal — Supabase anon key
+    // ========================================
+    const SettingsModal = ({ isOpen, onClose, anonKey, onSave }) => {
+      const [value, setValue] = useState(anonKey || '');
+      const [testing, setTesting] = useState(false);
+      const [result, setResult] = useState(null);
+
+      useEffect(() => {
+        if (isOpen) {
+          setValue(anonKey || '');
+          setResult(null);
+        }
+      }, [isOpen, anonKey]);
+
+      const test = async () => {
+        if (!value.trim()) {
+          setResult({ ok: false, msg: '키를 입력해 주세요.' });
+          return;
+        }
+        setTesting(true);
+        setResult(null);
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?select=id&limit=1`, {
+            headers: {
+              apikey: value.trim(),
+              Authorization: `Bearer ${value.trim()}`,
+            },
+          });
+          if (res.ok) {
+            setResult({ ok: true, msg: '연결 성공! 테이블을 읽을 수 있습니다.' });
+          } else {
+            const body = await res.text();
+            setResult({ ok: false, msg: `연결 실패 (${res.status}): ${body.slice(0, 120)}` });
+          }
+        } catch (e) {
+          setResult({ ok: false, msg: e.message || '네트워크 오류' });
+        } finally {
+          setTesting(false);
+        }
+      };
+
+      const save = () => {
+        onSave(value.trim());
+        onClose();
+      };
+
+      const clear = () => {
+        setValue('');
+        onSave('');
+        onClose();
+      };
+
+      return (
+        <Modal isOpen={isOpen} onClose={onClose} title="설정 · Supabase" size="lg">
+          <div className="space-y-4">
+            <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
+              <div><span className="font-semibold text-gray-700">Project URL:</span> <code className="text-amber-700">{SUPABASE_URL}</code></div>
+              <div><span className="font-semibold text-gray-700">Table:</span> <code className="text-amber-700">{TABLE}</code></div>
+            </div>
+            <Input
+              label="Supabase anon / public key"
+              type="password"
+              placeholder="eyJhbGciOi... (JWT 형식)"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Supabase 프로젝트 → Settings → API → <code className="bg-gray-100 px-1 rounded">anon public</code> 키를 복사해 붙여넣어 주세요.
+              키를 비워 두면 데이터가 이 브라우저의 localStorage 에만 저장됩니다.
+            </p>
+
+            {result && (
+              <div className={`text-sm rounded-lg px-3 py-2 ${result.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                {result.msg}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button variant="secondary" onClick={test} disabled={testing}>
+                {testing ? <Icon.Spinner className="w-4 h-4 animate-spin"/> : null}
+                연결 테스트
+              </Button>
+              <div className="flex-1"/>
+              <Button variant="ghost" onClick={clear}>초기화</Button>
+              <Button variant="primary" onClick={save}>저장</Button>
+            </div>
+
+            <details className="text-xs text-gray-500 pt-2">
+              <summary className="cursor-pointer hover:text-gray-700">필요한 SQL 보기</summary>
+              <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg overflow-x-auto text-[11px] leading-relaxed">{`CREATE TABLE memo_app_memos (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL DEFAULT '',
+  content text NOT NULL DEFAULT '',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+ALTER TABLE memo_app_memos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON memo_app_memos
+  FOR ALL USING (true) WITH CHECK (true);
+
+-- 이미지 컬럼 추가 (ImageKit 업로드 지원)
+ALTER TABLE memo_app_memos ADD COLUMN IF NOT EXISTS images text[] DEFAULT '{}';`}</pre>
+            </details>
+          </div>
+        </Modal>
+      );
+    };
+
+    // ========================================
+    // Confirm Delete Modal
+    // ========================================
+    const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => (
+      <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
+        <p className="text-sm text-gray-700 mb-5">{message}</p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>취소</Button>
+          <Button variant="danger" onClick={onConfirm}>삭제</Button>
+        </div>
+      </Modal>
+    );
+
+    // ========================================
+    // Sidebar — Memo List
+    // ========================================
+    const Sidebar = ({ memos, selectedId, onSelect, onNew, search, onSearch, onOpenSettings, storageMode, loading }) => {
+      return (
+        <aside className="w-full md:w-80 flex-shrink-0 border-r border-gray-200 bg-[#FAF7F2] flex flex-col h-full">
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3 border-b border-gray-200/70 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                <Icon.Note className="w-5 h-5"/>
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-gray-900 leading-tight">Memo</h1>
+                <div className="text-[10px] text-gray-500 flex items-center gap-1">
+                  {storageMode === 'supabase' ? (
+                    <><Icon.Cloud className="w-3 h-3"/> Supabase</>
+                  ) : (
+                    <><Icon.Drive className="w-3 h-3"/> 로컬 저장</>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <IconButton onClick={onOpenSettings} title="설정">
+                <Icon.Gear className="w-5 h-5"/>
+              </IconButton>
+              <IconButton onClick={onNew} title="새 메모" className="bg-amber-500 text-white hover:bg-amber-600 hover:text-white">
+                <Icon.Plus className="w-5 h-5"/>
+              </IconButton>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="px-3 py-3 border-b border-gray-200/70">
+            <div className="relative">
+              <Icon.Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder="메모 검색..."
+                className="w-full pl-9 pr-3 py-2 text-sm bg-white rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto scroll-thin">
+            {loading ? (
+              <div className="flex items-center justify-center py-10 text-gray-400">
+                <Icon.Spinner className="w-5 h-5 animate-spin"/>
+              </div>
+            ) : memos.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-gray-400">
+                {search ? '검색 결과가 없습니다.' : '첫 메모를 작성해 보세요!'}
+              </div>
+            ) : (
+              <ul className="py-1">
+                {memos.map((m) => {
+                  const active = m.id === selectedId;
+                  const title = (m.title || '').trim() || '제목 없음';
+                  const preview = previewText(m.content, 50) || '내용 없음';
+                  return (
+                    <li key={m.id}>
+                      <button
+                        onClick={() => onSelect(m.id)}
+                        className={`w-full text-left px-4 py-3 border-l-4 transition-colors ${active ? 'bg-amber-100/80 border-amber-500' : 'border-transparent hover:bg-amber-50/60'}`}
+                      >
+                        <div className={`text-sm font-semibold truncate ${active ? 'text-gray-900' : 'text-gray-800'}`}>{title}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">{formatDate(m.updated_at)}</span>
+                          <span className="text-xs text-gray-500 truncate">{preview}</span>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="px-4 py-2 text-[10px] text-gray-400 border-t border-gray-200/70">
+            {memos.length}개의 메모
+          </div>
+        </aside>
+      );
+    };
+
+    // ========================================
+    // Editor — Main memo editing area
+    // ========================================
+    const Editor = ({ memo, onChange, onDelete, saveState }) => {
+      const titleRef = useRef(null);
+      const contentRef = useRef(null);
+      const fileInputRef = useRef(null);
+      const [uploading, setUploading] = useState(false);
+      const [uploadError, setUploadError] = useState(null);
+
+      // Autofocus title on new (empty) memo
+      useEffect(() => {
+        if (memo && !memo.title && !memo.content && titleRef.current) {
+          titleRef.current.focus();
+        }
+      }, [memo?.id]);
+
+      // Reset upload error when memo changes
+      useEffect(() => { setUploadError(null); }, [memo?.id]);
+
+      if (!memo) {
+        return (
+          <main className="flex-1 flex items-center justify-center bg-white">
+            <div className="text-center text-gray-400 px-6">
+              <Icon.Note className="w-16 h-16 mx-auto mb-3 opacity-30"/>
+              <p className="text-lg font-medium text-gray-500">선택된 메모가 없습니다</p>
+              <p className="text-sm mt-1">왼쪽에서 메모를 선택하거나 새 메모를 만들어 보세요.</p>
+            </div>
+          </main>
+        );
+      }
+
+      const images = Array.isArray(memo.images) ? memo.images : [];
+
+      const StatusBadge = () => {
+        if (saveState === 'saving') return <Badge variant="warning"><Icon.Spinner className="w-3 h-3 animate-spin"/> 저장 중</Badge>;
+        if (saveState === 'saved') return <Badge variant="success"><Icon.Check className="w-3 h-3"/> 저장됨</Badge>;
+        if (saveState === 'error') return <Badge variant="default">저장 실패</Badge>;
+        return <Badge variant="default">편집 중</Badge>;
+      };
+
+      const handleImageButtonClick = () => {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+          fileInputRef.current.click();
+        }
+      };
+
+      const handleFileChange = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        setUploading(true);
+        setUploadError(null);
+        try {
+          const result = await uploadImageToImageKit(file);
+          const newImages = [...images, result.url];
+          onChange({ images: newImages });
+        } catch (err) {
+          console.error('Image upload error:', err);
+          setUploadError(err.message || '이미지 업로드에 실패했습니다.');
+        } finally {
+          setUploading(false);
+        }
+      };
+
+      const handleRemoveImage = (index) => {
+        const newImages = images.filter((_, i) => i !== index);
+        onChange({ images: newImages });
+      };
+
+      return (
+        <main className="flex-1 flex flex-col bg-white min-w-0">
+          {/* Toolbar */}
+          <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <StatusBadge/>
+              <span className="hidden sm:inline">
+                마지막 수정: {formatFullDate(memo.updated_at)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {/* Image Upload Button */}
+              <IconButton
+                onClick={handleImageButtonClick}
+                title="이미지 추가"
+                disabled={uploading}
+                className={uploading ? 'text-amber-500' : ''}
+              >
+                {uploading
+                  ? <Icon.Spinner className="w-5 h-5 animate-spin text-amber-500"/>
+                  : <Icon.Image className="w-5 h-5"/>
+                }
+              </IconButton>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <IconButton onClick={onDelete} title="삭제" className="hover:bg-red-50 hover:text-red-600">
+                <Icon.Trash className="w-5 h-5"/>
+              </IconButton>
+            </div>
+          </div>
+
+          {/* Upload Error */}
+          {uploadError && (
+            <div className="mx-6 mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 flex items-center justify-between">
+              <span>{uploadError}</span>
+              <button onClick={() => setUploadError(null)} className="ml-2 text-red-400 hover:text-red-600">
+                <Icon.X className="w-4 h-4"/>
+              </button>
+            </div>
+          )}
+
+          {/* Title + Content */}
+          <div className="flex-1 overflow-y-auto scroll-thin">
+            <div className="max-w-3xl mx-auto px-6 md:px-10 py-8">
+              <input
+                ref={titleRef}
+                type="text"
+                value={memo.title}
+                onChange={(e) => onChange({ title: e.target.value })}
+                placeholder="제목"
+                className="w-full text-3xl md:text-4xl font-bold text-gray-900 placeholder-gray-300 outline-none bg-transparent"
+              />
+              <div className="text-xs text-gray-400 mt-2 mb-6">
+                {formatFullDate(memo.created_at)} 작성
+              </div>
+              <textarea
+                ref={contentRef}
+                value={memo.content}
+                onChange={(e) => onChange({ content: e.target.value })}
+                placeholder="여기에 메모를 작성하세요..."
+                className="w-full min-h-[40vh] text-base leading-relaxed text-gray-800 placeholder-gray-300 outline-none bg-transparent"
+                style={{ fontFamily: '"Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' }}
+              />
+
+              {/* Image Grid */}
+              {images.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon.Image className="w-4 h-4 text-gray-400"/>
+                    <span className="text-xs text-gray-500 font-medium">첨부 이미지 ({images.length})</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {images.map((url, index) => (
+                      <div key={index} className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                        <img
+                          src={url}
+                          alt={`첨부 이미지 ${index + 1}`}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                        {/* Delete overlay button */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(index)}
+                          title="이미지 제거"
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                        >
+                          <Icon.X className="w-3.5 h-3.5"/>
+                        </button>
+                        {/* Click to open full image */}
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="absolute inset-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    ))}
+                    {/* Add more images button */}
+                    <button
+                      type="button"
+                      onClick={handleImageButtonClick}
+                      disabled={uploading}
+                      title="이미지 추가"
+                      className="aspect-square rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-amber-400 hover:text-amber-500 transition-colors disabled:opacity-40"
+                    >
+                      {uploading
+                        ? <Icon.Spinner className="w-6 h-6 animate-spin"/>
+                        : <>
+                            <Icon.Image className="w-6 h-6 mb-1"/>
+                            <span className="text-xs">추가</span>
+                          </>
+                      }
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload drop hint when no images */}
+              {images.length === 0 && (
+                <div className="mt-6 flex items-center gap-2 text-xs text-gray-400">
+                  <Icon.Image className="w-4 h-4 flex-shrink-0"/>
+                  <span>도구 모음의 <span className="font-medium text-gray-500">이미지 추가</span> 버튼으로 사진을 첨부할 수 있습니다.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </main>
+      );
+    };
+
+    // ========================================
+    // App Component — State & Composition
+    // ========================================
+    function App() {
+      const [anonKey, setAnonKey] = useState(() => localStorage.getItem(LS_KEYS.anonKey) || '');
+      const storage = useMemo(() => makeStorage(anonKey), [anonKey]);
+
+      const [memos, setMemos] = useState([]);
+      const [selectedId, setSelectedId] = useState(null);
+      const [search, setSearch] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      const [settingsOpen, setSettingsOpen] = useState(false);
+      const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+      const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
+      const saveTimer = useRef(null);
+
+      // Hide mobile sidebar when a memo is selected
+      const [mobileShowList, setMobileShowList] = useState(true);
+
+      // Load memos on mount / storage change
+      const load = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await storage.list();
+          setMemos(data);
+          if (data.length > 0 && !selectedId) {
+            setSelectedId(data[0].id);
+          }
+          if (data.length === 0) setSelectedId(null);
+        } catch (e) {
+          console.error(e);
+          setError(e.message || '데이터를 불러오지 못했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      }, [storage]);
+
+      useEffect(() => {
+        load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [anonKey]);
+
+      // Filtered memos
+      const filteredMemos = useMemo(() => {
+        if (!search.trim()) return memos;
+        const q = search.trim().toLowerCase();
+        return memos.filter(m =>
+          (m.title || '').toLowerCase().includes(q) ||
+          (m.content || '').toLowerCase().includes(q)
+        );
+      }, [memos, search]);
+
+      const selectedMemo = useMemo(
+        () => memos.find(m => m.id === selectedId) || null,
+        [memos, selectedId]
+      );
+
+      // Create new memo
+      const handleNew = async () => {
+        try {
+          const created = await storage.create({ title: '', content: '', images: [] });
+          setMemos(prev => [created, ...prev]);
+          setSelectedId(created.id);
+          setMobileShowList(false);
+        } catch (e) {
+          console.error(e);
+          alert('새 메모 생성 실패: ' + (e.message || e));
+        }
+      };
+
+      // Delete selected memo
+      const handleDelete = () => setConfirmDeleteOpen(true);
+
+      const confirmDelete = async () => {
+        if (!selectedMemo) return;
+        const id = selectedMemo.id;
+        try {
+          await storage.remove(id);
+          setMemos(prev => {
+            const remaining = prev.filter(m => m.id !== id);
+            setSelectedId(remaining[0]?.id || null);
+            return remaining;
+          });
+          setConfirmDeleteOpen(false);
+          setMobileShowList(true);
+        } catch (e) {
+          console.error(e);
+          alert('삭제 실패: ' + (e.message || e));
+        }
+      };
+
+      // Optimistic update + debounced save
+      const handleMemoChange = (patch) => {
+        if (!selectedMemo) return;
+        const id = selectedMemo.id;
+        // Optimistic local update
+        setMemos(prev => prev.map(m => m.id === id ? { ...m, ...patch, updated_at: nowISO() } : m));
+        setSaveState('saving');
+
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(async () => {
+          try {
+            const updated = await storage.update(id, patch);
+            setMemos(prev => {
+              const next = prev.map(m => m.id === id ? { ...m, ...updated } : m);
+              // Re-sort by updated_at
+              next.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+              return next;
+            });
+            setSaveState('saved');
+            setTimeout(() => setSaveState(s => s === 'saved' ? 'idle' : s), 1500);
+          } catch (e) {
+            console.error(e);
+            setSaveState('error');
+          }
+        }, 600);
+      };
+
+      // Clean up timer
+      useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+
+      // Save anonKey to localStorage
+      const handleSaveKey = (key) => {
+        if (key) {
+          localStorage.setItem(LS_KEYS.anonKey, key);
+        } else {
+          localStorage.removeItem(LS_KEYS.anonKey);
+        }
+        setAnonKey(key);
+      };
+
+      // Mobile select -> hide list
+      const handleSelect = (id) => {
+        setSelectedId(id);
+        setMobileShowList(false);
+      };
+
+      return (
+        <div className="h-screen w-screen flex flex-col overflow-hidden">
+          {error && (
+            <div className="bg-red-50 border-b border-red-200 text-red-700 text-sm px-4 py-2 flex items-center justify-between">
+              <span>오류: {error}</span>
+              <button onClick={load} className="underline text-xs">다시 시도</button>
+            </div>
+          )}
+
+          <div className="flex-1 flex min-h-0">
+            {/* Mobile: sidebar only OR editor only */}
+            <div className={`${mobileShowList ? 'flex' : 'hidden'} md:flex h-full w-full md:w-auto`}>
+              <Sidebar
+                memos={filteredMemos}
+                selectedId={selectedId}
+                onSelect={handleSelect}
+                onNew={handleNew}
+                search={search}
+                onSearch={setSearch}
+                onOpenSettings={() => setSettingsOpen(true)}
+                storageMode={storage.mode}
+                loading={loading}
+              />
+            </div>
+
+            <div className={`${mobileShowList ? 'hidden' : 'flex'} md:flex flex-1 flex-col min-w-0 h-full`}>
+              {/* Mobile back button */}
+              <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-white">
+                <button onClick={() => setMobileShowList(true)} className="flex items-center gap-1 text-sm text-amber-600 font-medium">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/></svg>
+                  메모 목록
+                </button>
+              </div>
+              <Editor
+                memo={selectedMemo}
+                onChange={handleMemoChange}
+                onDelete={handleDelete}
+                saveState={saveState}
+              />
+            </div>
+          </div>
+
+          <SettingsModal
+            isOpen={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            anonKey={anonKey}
+            onSave={handleSaveKey}
+          />
+
+          <ConfirmModal
+            isOpen={confirmDeleteOpen}
+            onClose={() => setConfirmDeleteOpen(false)}
+            onConfirm={confirmDelete}
+            title="메모 삭제"
+            message={`"${(selectedMemo?.title || '').trim() || '제목 없음'}" 메모를 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
+          />
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

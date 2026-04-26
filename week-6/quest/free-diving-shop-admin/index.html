@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>APNEA Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    html, body { font-family: 'Helvetica Neue','Segoe UI',system-ui,-apple-system,sans-serif; }
+    @keyframes toast-in {
+      0%   { opacity:0; transform:translateY(12px); }
+      10%  { opacity:1; transform:translateY(0); }
+      85%  { opacity:1; }
+      100% { opacity:0; transform:translateY(-8px); }
+    }
+    .toast-anim { animation: toast-in 2.8s ease forwards; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const API = '/api';
+const IK_PUBLIC_KEY = 'public_NcNYs+HXbjFhCjYYpAVpoC/MupQ=';
+const IK_UPLOAD_URL = 'https://upload.imagekit.io/api/v1/files/upload';
+
+const krw = (n) => new Intl.NumberFormat('ko-KR').format(n) + '원';
+
+// 저장된 admin 비밀번호로 Basic Auth 헤더 생성
+const getAuthHeader = () => {
+  const pwd = sessionStorage.getItem('admin_pwd') || '';
+  return { Authorization: `Basic ${btoa('admin:' + pwd)}` };
+};
+
+// 모든 API 요청에 인증 헤더 자동 주입
+const apiFetch = (url, opts = {}) => {
+  const headers = { ...(opts.headers || {}), ...getAuthHeader() };
+  return fetch(url, { ...opts, headers });
+};
+const fmtDate = (s) => s ? new Date(s).toLocaleDateString('ko-KR') : '-';
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+const ToastCtx = React.createContext(null);
+const ToastProvider = ({ children }) => {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((msg, type = 'success') => {
+    const id = Date.now();
+    setToasts(p => [...p, { id, msg, type }]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 2800);
+  }, []);
+  return (
+    <ToastCtx.Provider value={add}>
+      {children}
+      <div className="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast-anim flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white min-w-[220px]
+            ${t.type === 'error' ? 'bg-rose-500' : 'bg-emerald-500'}`}>
+            <span>{t.type === 'error' ? '✕' : '✓'}</span>
+            <span>{t.msg}</span>
+          </div>
+        ))}
+      </div>
+    </ToastCtx.Provider>
+  );
+};
+const useToast = () => React.useContext(ToastCtx);
+
+// ── Shared UI ────────────────────────────────────────────────────────────────
+const Spinner = ({ sm }) => (
+  <svg className={`spin ${sm ? 'w-4 h-4' : 'w-6 h-6'} text-sky-500`} viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" strokeLinecap="round"/>
+  </svg>
+);
+
+const Btn = ({ children, variant='primary', size='md', className='', ...p }) => {
+  const base = 'inline-flex items-center gap-1.5 font-medium rounded-lg transition focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed';
+  const v = {
+    primary:   'bg-sky-500 text-white hover:bg-sky-600 shadow-sm',
+    secondary: 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50',
+    danger:    'bg-rose-500 text-white hover:bg-rose-600',
+    ghost:     'bg-transparent text-slate-600 hover:bg-slate-100',
+  };
+  const s = { sm:'px-3 py-1.5 text-xs', md:'px-4 py-2 text-sm', lg:'px-5 py-2.5 text-sm' };
+  return <button className={`${base} ${v[variant]} ${s[size]} ${className}`} {...p}>{children}</button>;
+};
+
+const Field = ({ label, error, children }) => (
+  <label className="block">
+    {label && <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>}
+    {children}
+    {error && <span className="block text-xs text-rose-500 mt-1">{error}</span>}
+  </label>
+);
+
+const Input = ({ className='', ...p }) => (
+  <input className={`w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-300 ${className}`} {...p} />
+);
+
+const Textarea = ({ className='', ...p }) => (
+  <textarea className={`w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-300 resize-none ${className}`} rows={3} {...p} />
+);
+
+const EmptyRow = ({ cols, msg }) => (
+  <tr><td colSpan={cols} className="py-12 text-center text-sm text-slate-400">{msg}</td></tr>
+);
+
+const TH = ({ children, className='' }) => (
+  <th className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide ${className}`}>{children}</th>
+);
+const TD = ({ children, className='' }) => (
+  <td className={`px-4 py-3 text-sm text-slate-700 ${className}`}>{children}</td>
+);
+
+// ── Confirm Delete Modal ─────────────────────────────────────────────────────
+const ConfirmModal = ({ open, name, onConfirm, onCancel }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onCancel}/>
+      <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-80 text-center">
+        <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-4">
+          <svg className="w-6 h-6 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </div>
+        <p className="font-semibold text-slate-800 mb-1">상품을 삭제할까요?</p>
+        <p className="text-xs text-slate-500 mb-5">"{name}"<br/>삭제하면 장바구니에서도 제거됩니다.</p>
+        <div className="flex gap-2">
+          <Btn variant="secondary" className="flex-1" onClick={onCancel}>취소</Btn>
+          <Btn variant="danger" className="flex-1" onClick={onConfirm}>삭제</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+const MENU = [
+  { id:'dashboard', label:'대시보드',    icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11l2 2m-2-2v10a1 1 0 0 0-1 1h-3m-6 0a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1m-6 0h6' },
+  { id:'products',  label:'상품 관리',   icon:'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+  { id:'orders',    label:'주문 내역',   icon:'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-4 0V3m0 2h4M9 12h6M9 16h4' },
+  { id:'users',     label:'회원 관리',   icon:'M17 20h5v-2a3 3 0 0 0-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 0 1 5.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z' },
+  { id:'carts',     label:'장바구니 현황', icon:'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
+];
+
+const Sidebar = ({ page, setPage }) => (
+  <aside className="w-64 min-h-screen bg-[#0b1f3a] flex flex-col flex-shrink-0">
+    <div className="px-6 py-6 border-b border-white/10">
+      <p className="text-2xl font-black tracking-[0.2em] text-white">APNEA</p>
+      <span className="mt-1 inline-block px-2 py-0.5 bg-sky-500 text-white text-[10px] font-bold rounded tracking-widest">ADMIN</span>
+    </div>
+    <nav className="flex-1 py-4">
+      {MENU.map(m => {
+        const active = page === m.id;
+        return (
+          <button
+            key={m.id}
+            onClick={() => setPage(m.id)}
+            className={`w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition
+              ${active
+                ? 'text-white bg-white/10 border-l-2 border-sky-400'
+                : 'text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent'}`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+              <path strokeLinecap="round" strokeLinejoin="round" d={m.icon}/>
+            </svg>
+            {m.label}
+          </button>
+        );
+      })}
+    </nav>
+    <div className="px-6 py-4 border-t border-white/10 text-[10px] text-white/30">
+      © 2026 APNEA Shop Admin
+    </div>
+  </aside>
+);
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+const STAT_CARDS = [
+  { key:'todayOrderTotal',  label:'오늘 주문 총액', color:'bg-sky-50 text-sky-600',       icon:'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-4 0V3m0 2h4M9 12h6M9 16h4', isKrw: true },
+  { key:'totalProducts',    label:'전체 상품',      color:'bg-indigo-50 text-indigo-600', icon:'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+  { key:'totalUsers',       label:'전체 회원',      color:'bg-violet-50 text-violet-600', icon:'M17 20h5v-2a3 3 0 0 0-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 0 1 5.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z' },
+  { key:'totalCartItems',   label:'장바구니 항목',  color:'bg-amber-50 text-amber-600',   icon:'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
+  { key:'totalCartValue',   label:'장바구니 총액',  color:'bg-emerald-50 text-emerald-600', icon:'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 13v-1m0-8c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', isKrw: true },
+  { key:'lowStockProducts', label:'재고 부족 상품', color:'bg-rose-50 text-rose-600',     icon:'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
+];
+
+const Dashboard = () => {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  useEffect(() => {
+    apiFetch(`${API}/stats`).then(r=>r.json()).then(res => {
+      if (res.success) setStats(res.data); else toast(res.message,'error');
+    }).catch(()=>toast('통계를 불러오지 못했습니다.','error')).finally(()=>setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-slate-800 mb-6">대시보드</h1>
+      {loading ? (
+        <div className="flex items-center gap-2 text-slate-500"><Spinner/> 로딩 중...</div>
+      ) : (
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+          {STAT_CARDS.map(c => (
+            <div key={c.key} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+              <div className={`w-10 h-10 rounded-xl ${c.color} flex items-center justify-center mb-3`}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d={c.icon}/>
+                </svg>
+              </div>
+              <p className="text-2xl font-black text-slate-800">
+                {c.isKrw ? krw(stats?.[c.key] ?? 0) : (stats?.[c.key] ?? 0).toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">{c.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Products ─────────────────────────────────────────────────────────────────
+const EMPTY_FORM = { name:'', price:'', image_url:'', description:'', stock:'', options:[] };
+
+const Products = () => {
+  const toast = useToast();
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [editing, setEditing] = useState(null);   // product id being edited
+  const [saving, setSaving] = useState(false);
+  const [delTarget, setDelTarget] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState('');
+  const [optionInput, setOptionInput] = useState('');
+  const fileRef = useRef();
+
+  const addOption = () => {
+    const v = optionInput.trim();
+    if (!v || form.options.includes(v)) return;
+    setForm(f => ({ ...f, options: [...f.options, v] }));
+    setOptionInput('');
+  };
+  const removeOption = (opt) => setForm(f => ({ ...f, options: f.options.filter(o => o !== opt) }));
+  const handleOptionKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } };
+
+  const load = useCallback(() => {
+    setLoading(true);
+    apiFetch(`${API}/products`).then(r=>r.json()).then(res => {
+      if (res.success) setProducts(res.data);
+    }).finally(()=>setLoading(false));
+  }, []);
+
+  useEffect(()=>{ load(); }, [load]);
+
+  const startEdit = (p) => {
+    setEditing(p.id);
+    setForm({ name:p.name, price:String(p.price), image_url:p.image_url||'', description:p.description||'', stock:String(p.stock ?? ''), options: Array.isArray(p.options) ? p.options : [] });
+    setPreview(p.image_url||'');
+    window.scrollTo(0,0);
+  };
+
+  const cancelEdit = () => { setEditing(null); setForm(EMPTY_FORM); setPreview(''); };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const authRes = await apiFetch(`${API}/imagekit-auth`).then(r=>r.json());
+      if (!authRes.success) throw new Error(authRes.message);
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('fileName', `product_${Date.now()}_${file.name}`);
+      fd.append('publicKey', IK_PUBLIC_KEY);
+      fd.append('token', authRes.token);
+      fd.append('expire', authRes.expire);
+      fd.append('signature', authRes.signature);
+
+      const up = await fetch(IK_UPLOAD_URL, { method:'POST', body:fd }).then(r=>r.json());
+      if (!up.url) throw new Error('업로드 실패');
+      setForm(f => ({ ...f, image_url: up.url }));
+      setPreview(up.url);
+      toast('이미지 업로드 완료!');
+    } catch(err) {
+      toast(err.message || '업로드 실패', 'error');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) return toast('상품명을 입력해주세요.','error');
+    if (!form.price || isNaN(Number(form.price))) return toast('가격을 숫자로 입력해주세요.','error');
+    setSaving(true);
+    try {
+      const url = editing ? `${API}/products/${editing}` : `${API}/products`;
+      const method = editing ? 'PUT' : 'POST';
+      const res = await apiFetch(url, {
+        method, headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ...form, price: Number(form.price) }),
+      }).then(r=>r.json());
+      if (!res.success) throw new Error(res.message);
+      toast(editing ? '상품이 수정되었습니다.' : '상품이 등록되었습니다.');
+      cancelEdit();
+      load();
+    } catch(err) { toast(err.message,'error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!delTarget) return;
+    try {
+      const res = await apiFetch(`${API}/products/${delTarget.id}`,{method:'DELETE'}).then(r=>r.json());
+      if (!res.success) throw new Error(res.message);
+      toast('삭제되었습니다.');
+      load();
+    } catch(err) { toast(err.message,'error'); }
+    finally { setDelTarget(null); }
+  };
+
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-slate-800 mb-6">상품 관리</h1>
+
+      {/* Form */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
+        <h2 className="text-sm font-semibold text-slate-700 mb-4">{editing ? '상품 수정' : '새 상품 등록'}</h2>
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+          <Field label="상품명 *">
+            <Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="프리다이빙 마스크 Deeper" />
+          </Field>
+          <Field label="가격 (원) *">
+            <Input type="number" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="89000" />
+          </Field>
+          <Field label="상품 이미지">
+            <div className="flex items-center gap-3">
+              <Btn type="button" variant="secondary" size="sm" onClick={()=>fileRef.current?.click()} disabled={uploading}>
+                {uploading ? <><Spinner sm/> 업로드 중...</> : '파일 선택'}
+              </Btn>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload}/>
+              {preview && <img src={preview} alt="preview" className="w-10 h-10 rounded-lg object-cover border border-slate-200"/>}
+              {!preview && form.image_url && <span className="text-xs text-slate-500 truncate max-w-[160px]">{form.image_url}</span>}
+            </div>
+            <Input className="mt-2" value={form.image_url} onChange={e=>{setForm(f=>({...f,image_url:e.target.value}));setPreview(e.target.value);}} placeholder="또는 URL 직접 입력" />
+          </Field>
+          <Field label="재고 수량">
+            <Input type="number" min="0" value={form.stock} onChange={e=>setForm(f=>({...f,stock:e.target.value}))} placeholder="100" />
+          </Field>
+          <div className="col-span-2">
+            <Field label="상품 옵션 (사이즈, 컬러 등)">
+              <div className="flex gap-2 mb-2">
+                <Input
+                  value={optionInput}
+                  onChange={e=>setOptionInput(e.target.value)}
+                  onKeyDown={handleOptionKeyDown}
+                  placeholder="예: M(250-265)  입력 후 Enter 또는 추가 버튼"
+                  className="flex-1"
+                />
+                <Btn type="button" variant="secondary" size="sm" onClick={addOption}>추가</Btn>
+              </div>
+              {form.options.length === 0 ? (
+                <p className="text-xs text-slate-400">옵션 없음 (옵션이 없으면 선택 없이 담기 가능)</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {form.options.map((opt, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-50 border border-sky-200 text-sky-700 text-xs rounded-lg font-medium">
+                      {opt}
+                      <button type="button" onClick={()=>removeOption(opt)} className="text-sky-400 hover:text-rose-500 transition">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Field>
+          </div>
+          <Field label="상품 설명">
+            <Textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="상품 설명을 입력해주세요." />
+          </Field>
+          <div className="col-span-2 flex gap-2">
+            <Btn type="submit" disabled={saving}>
+              {saving ? <><Spinner sm/> 저장 중...</> : (editing ? '수정 완료' : '등록')}
+            </Btn>
+            {editing && <Btn type="button" variant="secondary" onClick={cancelEdit}>취소</Btn>}
+          </div>
+        </form>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <TH>이미지</TH><TH>상품명</TH><TH>가격</TH><TH>재고</TH><TH>설명</TH><TH className="text-right">관리</TH>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loading ? (
+              <tr><td colSpan={6} className="py-10 text-center"><Spinner/></td></tr>
+            ) : products.length === 0 ? (
+              <EmptyRow cols={6} msg="등록된 상품이 없습니다."/>
+            ) : products.map(p => (
+              <tr key={p.id} className="hover:bg-slate-50/50">
+                <TD>
+                  {p.image_url
+                    ? <img src={p.image_url} alt={p.name} className="w-10 h-10 rounded-lg object-cover border border-slate-200"/>
+                    : <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 text-[10px]">NO<br/>IMG</div>
+                  }
+                </TD>
+                <TD><span className="font-medium text-slate-800">{p.name}</span></TD>
+                <TD><span className="font-semibold">{krw(p.price)}</span></TD>
+                <TD>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-semibold ${p.stock === 0 ? 'text-rose-600' : p.stock < 5 ? 'text-amber-600' : 'text-slate-700'}`}>
+                      {p.stock ?? '-'}
+                    </span>
+                    {p.stock === 0 && (
+                      <span className="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[10px] font-bold rounded">품절</span>
+                    )}
+                    {p.stock > 0 && p.stock < 5 && (
+                      <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">부족</span>
+                    )}
+                  </div>
+                </TD>
+                <TD><span className="text-slate-500 line-clamp-1 max-w-[200px] block">{p.description || '-'}</span></TD>
+                <TD className="text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <Btn size="sm" variant="ghost" onClick={()=>startEdit(p)}>수정</Btn>
+                    <Btn size="sm" variant="danger" onClick={()=>setDelTarget(p)}>삭제</Btn>
+                  </div>
+                </TD>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ConfirmModal open={!!delTarget} name={delTarget?.name} onConfirm={handleDelete} onCancel={()=>setDelTarget(null)} />
+    </div>
+  );
+};
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+const Users = () => {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  useEffect(() => {
+    apiFetch(`${API}/users`).then(r=>r.json()).then(res=>{
+      if (res.success) setUsers(res.data); else toast(res.message,'error');
+    }).catch(()=>toast('회원 목록 로딩 실패','error')).finally(()=>setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-slate-800 mb-6">회원 관리</h1>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr><TH>#</TH><TH>이메일</TH><TH>닉네임</TH><TH>가입일</TH><TH>장바구니 상품 수</TH></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loading ? (
+              <tr><td colSpan={5} className="py-10 text-center"><Spinner/></td></tr>
+            ) : users.length === 0 ? (
+              <EmptyRow cols={5} msg="가입한 회원이 없습니다."/>
+            ) : users.map((u,i) => (
+              <tr key={u.id} className="hover:bg-slate-50/50">
+                <TD><span className="text-slate-400">{i+1}</span></TD>
+                <TD><span className="font-medium">{u.email}</span></TD>
+                <TD>{u.nickname || <span className="text-slate-400">-</span>}</TD>
+                <TD><span className="text-slate-500">{fmtDate(u.created_at)}</span></TD>
+                <TD>
+                  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold
+                    ${u.cart_count > 0 ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-400'}`}>
+                    {u.cart_count}
+                  </span>
+                </TD>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── Carts ─────────────────────────────────────────────────────────────────────
+const Carts = () => {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  useEffect(() => {
+    apiFetch(`${API}/carts`).then(r=>r.json()).then(res=>{
+      if (res.success) { setRows(res.data); setTotal(res.grand_total); }
+      else toast(res.message,'error');
+    }).catch(()=>toast('장바구니 현황 로딩 실패','error')).finally(()=>setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-slate-800 mb-6">장바구니 현황</h1>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr><TH>회원 이메일</TH><TH>닉네임</TH><TH>상품명</TH><TH>단가</TH><TH>수량</TH><TH className="text-right">소계</TH></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loading ? (
+              <tr><td colSpan={6} className="py-10 text-center"><Spinner/></td></tr>
+            ) : rows.length === 0 ? (
+              <EmptyRow cols={6} msg="장바구니 데이터가 없습니다."/>
+            ) : rows.map(r => (
+              <tr key={r.cart_id} className="hover:bg-slate-50/50">
+                <TD><span className="font-medium">{r.user_email}</span></TD>
+                <TD>{r.user_nickname || <span className="text-slate-400">-</span>}</TD>
+                <TD>{r.product_name}</TD>
+                <TD>{krw(r.price)}</TD>
+                <TD>
+                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-xs font-bold text-slate-700">
+                    {r.quantity}
+                  </span>
+                </TD>
+                <TD className="text-right font-semibold">{krw(r.subtotal)}</TD>
+              </tr>
+            ))}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-slate-50 border-t border-slate-200">
+              <tr>
+                <td colSpan={5} className="px-4 py-3 text-sm font-semibold text-slate-600 text-right">전체 합계</td>
+                <td className="px-4 py-3 text-right text-base font-black text-slate-800">{krw(total)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── Orders ───────────────────────────────────────────────────────────────────
+const ORDER_STATUS = {
+  DONE:    { label: '결제완료', cls: 'bg-emerald-100 text-emerald-700' },
+  PENDING: { label: '결제대기', cls: 'bg-amber-100  text-amber-700'   },
+  FAILED:  { label: '결제실패', cls: 'bg-rose-100   text-rose-600'    },
+};
+
+const OrderBadge = ({ status }) => {
+  const s = ORDER_STATUS[status] || { label: status, cls: 'bg-slate-100 text-slate-500' };
+  return <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${s.cls}`}>{s.label}</span>;
+};
+
+const Orders = () => {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+
+  useEffect(() => {
+    apiFetch(`${API}/orders`).then(r=>r.json()).then(res => {
+      if (res.success) setOrders(res.data);
+      else toast(res.message, 'error');
+    }).catch(()=>toast('주문 내역 로딩 실패','error')).finally(()=>setLoading(false));
+  }, []);
+
+  const totalDone = orders.filter(o=>o.status==='DONE').reduce((s,o)=>s+Number(o.total_price),0);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold text-slate-800">주문 내역</h1>
+        {!loading && (
+          <div className="text-sm text-slate-500">
+            총 <span className="font-semibold text-slate-700">{orders.length}</span>건 ·
+            결제완료 <span className="font-semibold text-emerald-600">{krw(totalDone)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <TH>주문번호</TH>
+              <TH>회원</TH>
+              <TH>주문 상품</TH>
+              <TH>결제 금액</TH>
+              <TH>주문일시</TH>
+              <TH>상태</TH>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loading ? (
+              <tr><td colSpan={6} className="py-10 text-center"><Spinner/></td></tr>
+            ) : orders.length === 0 ? (
+              <EmptyRow cols={6} msg="주문 내역이 없습니다."/>
+            ) : orders.map(o => (
+              <tr key={o.id} className="hover:bg-slate-50/50">
+                <TD>
+                  <span className="font-mono text-xs text-slate-600 break-all">{o.toss_order_id}</span>
+                </TD>
+                <TD>
+                  <div>
+                    <p className="font-medium text-slate-800 text-xs">{o.user_email || '-'}</p>
+                    {o.user_nickname && <p className="text-[11px] text-slate-400">{o.user_nickname}</p>}
+                  </div>
+                </TD>
+                <TD>
+                  <span className="text-slate-600 text-xs line-clamp-2 max-w-[200px] block">
+                    {o.items_summary || '-'}
+                  </span>
+                </TD>
+                <TD><span className="font-semibold">{krw(o.total_price)}</span></TD>
+                <TD>
+                  <span className="text-slate-500 text-xs whitespace-nowrap">
+                    {o.status === 'DONE' && o.paid_at
+                      ? fmtDate(o.paid_at)
+                      : fmtDate(o.created_at)}
+                  </span>
+                </TD>
+                <TD><OrderBadge status={o.status}/></TD>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+const LoginScreen = ({ onLogin }) => {
+  const [pwd, setPwd] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API}/stats`, {
+        headers: { Authorization: `Basic ${btoa('admin:' + pwd)}` }
+      });
+      if (res.ok) {
+        sessionStorage.setItem('admin_pwd', pwd);
+        onLogin();
+      } else {
+        setError('비밀번호가 올바르지 않습니다.');
+      }
+    } catch {
+      setError('서버에 연결할 수 없습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="bg-white rounded-2xl shadow-lg p-10 w-full max-w-sm">
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">APNEA Admin</h1>
+        <p className="text-sm text-slate-400 mb-8">관리자 비밀번호를 입력하세요</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="password"
+            value={pwd}
+            onChange={e => setPwd(e.target.value)}
+            placeholder="비밀번호"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            autoFocus
+          />
+          {error && <p className="text-xs text-rose-500">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading || !pwd}
+            className="w-full bg-slate-800 text-white rounded-xl py-3 text-sm font-semibold hover:bg-slate-700 disabled:opacity-50 transition"
+          >
+            {loading ? '확인 중...' : '로그인'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ── App ───────────────────────────────────────────────────────────────────────
+const App = () => {
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem('admin_pwd'));
+  const [page, setPage] = useState(
+    window.location.hash.replace('#','') || 'dashboard'
+  );
+
+  useEffect(() => {
+    window.location.hash = page;
+  }, [page]);
+
+  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
+
+  const pages = { dashboard:<Dashboard/>, products:<Products/>, orders:<Orders/>, users:<Users/>, carts:<Carts/> };
+
+  return (
+    <ToastProvider>
+      <div className="flex min-h-screen">
+        <Sidebar page={page} setPage={setPage}/>
+        <main className="flex-1 p-8 overflow-y-auto">
+          {pages[page] || <Dashboard/>}
+        </main>
+      </div>
+    </ToastProvider>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
