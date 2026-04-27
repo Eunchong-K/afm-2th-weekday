@@ -15,28 +15,37 @@ const PORT = process.env.PORT || 3001;
 // ---------------------------------------------------------------------------
 // DB + ImageKit
 // ---------------------------------------------------------------------------
-if (!process.env.DATABASE_URL || !process.env.IMAGEKIT_PRIVATE_KEY || !process.env.ADMIN_PASSWORD) {
-  console.error('[ERROR] 필수 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.');
-  process.exit(1);
+const ADMIN_PASSWORD        = process.env.ADMIN_PASSWORD        || '';
+const DATABASE_URL          = process.env.DATABASE_URL          || '';
+const IMAGEKIT_PUBLIC_KEY   = process.env.IMAGEKIT_PUBLIC_KEY   || '';
+const IMAGEKIT_PRIVATE_KEY  = process.env.IMAGEKIT_PRIVATE_KEY  || '';
+const IMAGEKIT_URL_ENDPOINT = process.env.IMAGEKIT_URL_ENDPOINT || '';
+
+const missingVars = [
+  !DATABASE_URL        && 'DATABASE_URL',
+  !ADMIN_PASSWORD      && 'ADMIN_PASSWORD',
+  !IMAGEKIT_PRIVATE_KEY && 'IMAGEKIT_PRIVATE_KEY',
+].filter(Boolean);
+
+if (missingVars.length) {
+  console.error('[ERROR] 필수 환경변수 누락:', missingVars.join(', '));
 }
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL.trim(),
+  connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
 const imagekit = new ImageKit({
-  publicKey:   process.env.IMAGEKIT_PUBLIC_KEY.trim(),
-  privateKey:  process.env.IMAGEKIT_PRIVATE_KEY.trim(),
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT.trim(),
+  publicKey:   IMAGEKIT_PUBLIC_KEY,
+  privateKey:  IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: IMAGEKIT_URL_ENDPOINT,
 });
 
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
-const ALLOWED_ORIGIN = process.env.ADMIN_ORIGIN || 'http://localhost:3001';
+const ALLOWED_ORIGIN = (process.env.ADMIN_ORIGIN || 'http://localhost:3001').trim();
 app.use(cors({ origin: ALLOWED_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));

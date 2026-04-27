@@ -25,8 +25,7 @@ const JWT_SECRET     = process.env.JWT_SECRET;
 const TOSS_SECRET_KEY = process.env.TOSS_SECRET_KEY;
 
 if (!DATABASE_URL || !JWT_SECRET || !TOSS_SECRET_KEY) {
-  console.error('[ERROR] 필수 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.');
-  process.exit(1);
+  console.error('[ERROR] 필수 환경변수 누락 — DATABASE_URL/JWT_SECRET/TOSS_SECRET_KEY 확인 필요');
 }
 const TABLE_PREFIX = 'apnea-shop';
 const PRODUCTS_TABLE = `"${TABLE_PREFIX}_products"`;
