@@ -1,0 +1,13 @@
+.env
+node_modules/
+uploads/
+.vercel
+
+# auto-generated screenshot/capture files
+captures/
+capture.mjs
+
+# presentation example images (local reference only)
+스탬프 예시*
+스템프 예시*
+템플릿 예시*

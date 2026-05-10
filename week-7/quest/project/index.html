@@ -1,0 +1,2814 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marked — Leave your mark, Color your world.</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg:     '#F5F3EE',
+            ink:    '#111111',
+            coral:  '#FF6B4A',
+            muted:  '#888880',
+            border: '#E0DDD6',
+            white:  '#FFFFFF',
+          },
+          fontFamily: {
+            sans:  ['"Noto Sans KR"', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body {
+      background: #F5F3EE;
+      color: #111111;
+      min-height: 100%;
+    }
+    body {
+      font-family: 'Noto Sans KR', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Hide number input spinners */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    input[type="number"]{ -moz-appearance:textfield; }
+
+    /* Date input — light theme */
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: none; cursor: pointer; }
+
+    /* Light scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: #E0DDD6; border-radius: 2px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* Card shadow — subtle */
+    .card-shadow { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+    /* Stamp animation */
+    @keyframes seal-in { from { transform: scale(0.6) rotate(0deg); opacity:0; } to { transform: scale(1) rotate(-7deg); opacity:1; } }
+    .seal-in { animation: seal-in 500ms cubic-bezier(.2,.9,.3,1.4) both; }
+
+    /* Fade up */
+    @keyframes fadeUp { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 300ms ease-out both; }
+
+    /* Slide up — for login card */
+    @keyframes slideUp { from { opacity:0; transform: translateY(20px); } to { opacity:1; transform: translateY(0); } }
+    .slide-up { animation: slideUp 400ms ease-out both; }
+
+    /* Hide native file input */
+    .hidden-file { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+
+    /* Hairline divider */
+    .hairline { border-color: #E0DDD6; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // Hooks
+    // ========================================
+    const { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } = React;
+
+
+    // ========================================
+    // Constants & Helpers (PRESERVED LOGIC)
+    // ========================================
+    const STORAGE_KEY = 'marked.runs.v1';
+    const USER_KEY    = 'marked.user.v1';
+    const EXPLORE_KEY = 'marked.courses.v1';
+
+    // ─── Server API (falls back silently if offline) ─────────────────────────
+    const api = {
+      async post(url, data) {
+        const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || '오류 발생');
+        return json;
+      },
+      async postForm(url, formData) {
+        const r = await fetch(url, { method:'POST', body:formData });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || '오류 발생');
+        return json;
+      },
+      async get(url) {
+        const r = await fetch(url);
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || '오류 발생');
+        return json;
+      },
+      async del(url, data={}) {
+        const r = await fetch(url, { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || '오류 발생');
+        return json;
+      },
+    };
+
+    const SAMPLE_RUNS = [
+      { id: 1, city: '도쿄',       country: '일본',    date: '2026-04-10', km: 8.2,  minutes: 48, memo: '황궁 주변 코스' },
+      { id: 2, city: '바르셀로나', country: '스페인', date: '2026-03-22', km: 10.5, minutes: 58, memo: '바닷가 보드워크' },
+      { id: 3, city: '서울',       country: '한국',    date: '2026-02-14', km: 6.0,  minutes: 36, memo: '한강 코스' },
+    ];
+
+    const COMMUNITY_RUNS = [
+      { id:'c1', user:'지수', city:'파리',         country:'프랑스',    date:'2026-05-01', km:9.2,  minutes:52, memo:'에펠탑 뷰 코스',     color:'sunset'   },
+      { id:'c2', user:'민준', city:'뉴욕',         country:'미국',      date:'2026-04-28', km:12.0, minutes:65, memo:'센트럴파크 풀코스', color:'navy'     },
+      { id:'c3', user:'하은', city:'도쿄',         country:'일본',      date:'2026-04-25', km:7.5,  minutes:42, memo:'황궁 외곽',         color:'forest'   },
+      { id:'c4', user:'준서', city:'바르셀로나',  country:'스페인',    date:'2026-04-20', km:10.0, minutes:55, memo:'해변 코스',         color:'terra'    },
+      { id:'c5', user:'소윤', city:'암스테르담',  country:'네덜란드',  date:'2026-04-15', km:8.8,  minutes:50, memo:'운하 옆 달리기',     color:'lavender' },
+      { id:'c6', user:'태양', city:'제주',         country:'한국',      date:'2026-04-10', km:6.5,  minutes:38, memo:'올레길 새벽 런',     color:'forest'   },
+      { id:'c7', user:'나연', city:'런던',         country:'영국',      date:'2026-04-05', km:11.2, minutes:62, memo:'하이드파크 러닝',   color:'ink'      },
+      { id:'c8', user:'현우', city:'시드니',       country:'호주',      date:'2026-03-30', km:8.0,  minutes:45, memo:'하버브리지 뷰',     color:'sunset'   },
+    ];
+
+    const SAMPLE_COURSES = [
+      { id:'e1', city:'서울', country:'한국', name:'한강 러닝코스', distance:'10km', difficulty:'초급', description:'여의도~반포 구간, 평탄하고 경치 좋음', mapUrl:'https://maps.google.com/?q=한강+공원+여의도', date:'2026-05-01' },
+      { id:'e2', city:'제주', country:'한국', name:'올레길 1코스', distance:'15km', difficulty:'중급', description:'시흥초등학교~광치기해변, 오름과 해안 절경', mapUrl:'https://maps.google.com/?q=제주+올레길+1코스', date:'2026-04-15' },
+      { id:'e3', city:'도쿄', country:'일본', name:'황궁 외곽 코스', distance:'5km', difficulty:'초급', description:'일본 황궁 주변 순환 코스, 아침 러닝 명소', mapUrl:'https://maps.google.com/?q=Imperial+Palace+Tokyo+running', date:'2026-04-10' },
+      { id:'e4', city:'바르셀로나', country:'스페인', name:'해변 보드워크', distance:'8km', difficulty:'초급', description:'바르셀로네타 해변 따라 달리기, 지중해 뷰', mapUrl:'https://maps.google.com/?q=Barceloneta+Beach+Barcelona', date:'2026-03-22' },
+    ];
+
+    const COUNTRY_FLAGS = {
+      '한국':'🇰🇷','일본':'🇯🇵','중국':'🇨🇳','홍콩':'🇭🇰','대만':'🇹🇼','몽골':'🇲🇳',
+      '미국':'🇺🇸','캐나다':'🇨🇦','멕시코':'🇲🇽',
+      '프랑스':'🇫🇷','영국':'🇬🇧','독일':'🇩🇪','스페인':'🇪🇸','이탈리아':'🇮🇹',
+      '포르투갈':'🇵🇹','그리스':'🇬🇷','네덜란드':'🇳🇱','벨기에':'🇧🇪',
+      '스위스':'🇨🇭','오스트리아':'🇦🇹','체코':'🇨🇿','헝가리':'🇭🇺',
+      '폴란드':'🇵🇱','덴마크':'🇩🇰','스웨덴':'🇸🇪','노르웨이':'🇳🇴','핀란드':'🇫🇮',
+      '아이슬란드':'🇮🇸','아일랜드':'🇮🇪','크로아티아':'🇭🇷','루마니아':'🇷🇴',
+      '불가리아':'🇧🇬','세르비아':'🇷🇸','슬로베니아':'🇸🇮','알바니아':'🇦🇱',
+      '보스니아헤르체고비나':'🇧🇦','몬테네그로':'🇲🇪','북마케도니아':'🇲🇰',
+      '에스토니아':'🇪🇪','라트비아':'🇱🇻','리투아니아':'🇱🇹','벨라루스':'🇧🇾',
+      '터키':'🇹🇷','러시아':'🇷🇺','우크라이나':'🇺🇦','몰도바':'🇲🇩',
+      '조지아':'🇬🇪','아르메니아':'🇦🇲','아제르바이잔':'🇦🇿',
+      '태국':'🇹🇭','싱가포르':'🇸🇬','말레이시아':'🇲🇾','인도네시아':'🇮🇩',
+      '베트남':'🇻🇳','필리핀':'🇵🇭','캄보디아':'🇰🇭','미얀마':'🇲🇲','라오스':'🇱🇦',
+      '브루나이':'🇧🇳','동티모르':'🇹🇱',
+      '인도':'🇮🇳','방글라데시':'🇧🇩','스리랑카':'🇱🇰','파키스탄':'🇵🇰',
+      '네팔':'🇳🇵','부탄':'🇧🇹','몰디브':'🇲🇻','아프가니스탄':'🇦🇫',
+      '카자흐스탄':'🇰🇿','우즈베키스탄':'🇺🇿','키르기스스탄':'🇰🇬',
+      '타지키스탄':'🇹🇯','투르크메니스탄':'🇹🇲',
+      '호주':'🇦🇺','뉴질랜드':'🇳🇿','피지':'🇫🇯','사모아':'🇼🇸','통가':'🇹🇴',
+      '파푸아뉴기니':'🇵🇬','바누아투':'🇻🇺','솔로몬제도':'🇸🇧',
+      '브라질':'🇧🇷','아르헨티나':'🇦🇷','콜롬비아':'🇨🇴','페루':'🇵🇪',
+      '칠레':'🇨🇱','에콰도르':'🇪🇨','볼리비아':'🇧🇴','우루과이':'🇺🇾','파라과이':'🇵🇾',
+      '베네수엘라':'🇻🇪','가이아나':'🇬🇾','수리남':'🇸🇷',
+      '쿠바':'🇨🇺','자메이카':'🇯🇲','도미니카공화국':'🇩🇴','아이티':'🇭🇹',
+      '코스타리카':'🇨🇷','파나마':'🇵🇦','과테말라':'🇬🇹','온두라스':'🇭🇳',
+      '엘살바도르':'🇸🇻','니카라과':'🇳🇮','바하마':'🇧🇸','바베이도스':'🇧🇧',
+      '아랍에미리트':'🇦🇪','카타르':'🇶🇦','이스라엘':'🇮🇱','요르단':'🇯🇴',
+      '오만':'🇴🇲','쿠웨이트':'🇰🇼','바레인':'🇧🇭','사우디아라비아':'🇸🇦',
+      '레바논':'🇱🇧','이란':'🇮🇷','이라크':'🇮🇶','시리아':'🇸🇾',
+      '이집트':'🇪🇬','모로코':'🇲🇦','튀니지':'🇹🇳','알제리':'🇩🇿','리비아':'🇱🇾',
+      '케냐':'🇰🇪','탄자니아':'🇹🇿','에티오피아':'🇪🇹','우간다':'🇺🇬',
+      '가나':'🇬🇭','나이지리아':'🇳🇬','세네갈':'🇸🇳','코트디부아르':'🇨🇮',
+      '남아프리카':'🇿🇦','짐바브웨':'🇿🇼','잠비아':'🇿🇲','모잠비크':'🇲🇿',
+      '나미비아':'🇳🇦','보츠와나':'🇧🇼','마다가스카르':'🇲🇬',
+      '콩고민주공화국':'🇨🇩','콩고':'🇨🇬','앙골라':'🇦🇴','카메룬':'🇨🇲',
+    };
+
+    const flagOf = (country) => COUNTRY_FLAGS[normalizeCountry(country)] || '🌐';
+
+    const COUNTRY_CODES = {
+      '한국':'KR','일본':'JP','중국':'CN','홍콩':'HK','대만':'TW','몽골':'MN',
+      '미국':'US','캐나다':'CA','멕시코':'MX',
+      '프랑스':'FR','영국':'GB','독일':'DE','스페인':'ES','이탈리아':'IT',
+      '포르투갈':'PT','그리스':'GR','네덜란드':'NL','벨기에':'BE',
+      '스위스':'CH','오스트리아':'AT','체코':'CZ','헝가리':'HU',
+      '폴란드':'PL','덴마크':'DK','스웨덴':'SE','노르웨이':'NO','핀란드':'FI',
+      '아이슬란드':'IS','아일랜드':'IE','크로아티아':'HR','루마니아':'RO',
+      '불가리아':'BG','세르비아':'RS','슬로베니아':'SI','알바니아':'AL',
+      '보스니아헤르체고비나':'BA','몬테네그로':'ME','북마케도니아':'MK',
+      '에스토니아':'EE','라트비아':'LV','리투아니아':'LT','벨라루스':'BY',
+      '터키':'TR','러시아':'RU','우크라이나':'UA','몰도바':'MD',
+      '조지아':'GE','아르메니아':'AM','아제르바이잔':'AZ',
+      '태국':'TH','싱가포르':'SG','말레이시아':'MY','인도네시아':'ID',
+      '베트남':'VN','필리핀':'PH','캄보디아':'KH','미얀마':'MM','라오스':'LA',
+      '브루나이':'BN','동티모르':'TL',
+      '인도':'IN','방글라데시':'BD','스리랑카':'LK','파키스탄':'PK',
+      '네팔':'NP','부탄':'BT','몰디브':'MV','아프가니스탄':'AF',
+      '카자흐스탄':'KZ','우즈베키스탄':'UZ','키르기스스탄':'KG',
+      '타지키스탄':'TJ','투르크메니스탄':'TM',
+      '호주':'AU','뉴질랜드':'NZ','피지':'FJ','사모아':'WS','통가':'TO',
+      '파푸아뉴기니':'PG','바누아투':'VU','솔로몬제도':'SB',
+      '브라질':'BR','아르헨티나':'AR','콜롬비아':'CO','페루':'PE',
+      '칠레':'CL','에콰도르':'EC','볼리비아':'BO','우루과이':'UY','파라과이':'PY',
+      '쿠바':'CU','자메이카':'JM','도미니카공화국':'DO','아이티':'HT',
+      '코스타리카':'CR','파나마':'PA','과테말라':'GT','온두라스':'HN',
+      '엘살바도르':'SV','니카라과':'NI',
+      '아랍에미리트':'AE','카타르':'QA','이스라엘':'IL','요르단':'JO',
+      '오만':'OM','쿠웨이트':'KW','바레인':'BH','사우디아라비아':'SA',
+      '레바논':'LB','이란':'IR','이라크':'IQ',
+      '이집트':'EG','모로코':'MA','튀니지':'TN','알제리':'DZ',
+      '케냐':'KE','탄자니아':'TZ','에티오피아':'ET','우간다':'UG',
+      '가나':'GH','나이지리아':'NG','세네갈':'SN','코트디부아르':'CI',
+      '남아프리카':'ZA','짐바브웨':'ZW','잠비아':'ZM','모잠비크':'MZ',
+      '나미비아':'NA','보츠와나':'BW','마다가스카르':'MG',
+      '콩고민주공화국':'CD','앙골라':'AO','카메룬':'CM',
+    };
+    const codeOf = (country) => COUNTRY_CODES[normalizeCountry(country)] || COUNTRY_CODES[country] || country.slice(0,2).toUpperCase();
+
+    const CITY_EN = {
+      '서울':'Seoul','부산':'Busan','제주':'Jeju','인천':'Incheon','대구':'Daegu','광주':'Gwangju',
+      '도쿄':'Tokyo','오사카':'Osaka','교토':'Kyoto','삿포로':'Sapporo','후쿠오카':'Fukuoka',
+      '뉴욕':'New York','로스앤젤레스':'Los Angeles','시카고':'Chicago','샌프란시스코':'San Francisco',
+      '파리':'Paris','런던':'London','베를린':'Berlin','마드리드':'Madrid','로마':'Rome',
+      '바르셀로나':'Barcelona','암스테르담':'Amsterdam','비엔나':'Vienna','취리히':'Zurich',
+      '시드니':'Sydney','멜버른':'Melbourne','방콕':'Bangkok','싱가포르':'Singapore',
+      '홍콩':'Hong Kong','대만':'Taipei','베이징':'Beijing','상하이':'Shanghai',
+      '뭄바이':'Mumbai','두바이':'Dubai','이스탄불':'Istanbul','아테네':'Athens',
+    };
+    const COUNTRY_EN = {
+      '한국':'Korea','대한민국':'Korea','일본':'Japan','미국':'USA','프랑스':'France',
+      '영국':'UK','독일':'Germany','스페인':'Spain','이탈리아':'Italy','중국':'China',
+      '호주':'Australia','캐나다':'Canada','브라질':'Brazil','멕시코':'Mexico',
+      '태국':'Thailand','베트남':'Vietnam','인도':'India','러시아':'Russia',
+      '터키':'Turkey','그리스':'Greece','네덜란드':'Netherlands','스위스':'Switzerland',
+      '뉴질랜드':'New Zealand','싱가포르':'Singapore','인도네시아':'Indonesia',
+      '홍콩':'Hong Kong','대만':'Taiwan','포르투갈':'Portugal',
+      '아르헨티나':'Argentina','아랍에미리트':'UAE',
+    };
+    const cityL  = (city, lang)    => (lang==='en' ? (CITY_EN[city]    || city)    : city);
+    const countL = (country, lang) => (lang==='en' ? (COUNTRY_EN[country] || country) : country);
+
+    // ========================================
+    // City catalog (Korean-only, with auto country fill)
+    // ========================================
+    const CITIES_KR = [
+      // ─── 한국 ─────────────────────────────────────────────
+      { city:'서울', country:'한국' }, { city:'부산', country:'한국' }, { city:'제주', country:'한국' },
+      { city:'인천', country:'한국' }, { city:'대구', country:'한국' }, { city:'광주', country:'한국' },
+      { city:'대전', country:'한국' }, { city:'울산', country:'한국' }, { city:'수원', country:'한국' },
+      { city:'전주', country:'한국' }, { city:'청주', country:'한국' }, { city:'창원', country:'한국' },
+      { city:'경주', country:'한국' }, { city:'강릉', country:'한국' }, { city:'춘천', country:'한국' },
+      { city:'여수', country:'한국' }, { city:'통영', country:'한국' }, { city:'속초', country:'한국' },
+      { city:'안동', country:'한국' }, { city:'포항', country:'한국' }, { city:'천안', country:'한국' },
+      { city:'의정부', country:'한국' }, { city:'진주', country:'한국' }, { city:'목포', country:'한국' },
+      { city:'순천', country:'한국' }, { city:'군산', country:'한국' }, { city:'세종', country:'한국' },
+      // ─── 일본 ─────────────────────────────────────────────
+      { city:'도쿄', country:'일본' }, { city:'오사카', country:'일본' }, { city:'교토', country:'일본' },
+      { city:'삿포로', country:'일본' }, { city:'후쿠오카', country:'일본' }, { city:'나고야', country:'일본' },
+      { city:'오키나와', country:'일본' }, { city:'나라', country:'일본' }, { city:'고베', country:'일본' },
+      { city:'히로시마', country:'일본' }, { city:'가나자와', country:'일본' }, { city:'요코하마', country:'일본' },
+      { city:'니코', country:'일본' }, { city:'하코네', country:'일본' }, { city:'가고시마', country:'일본' },
+      { city:'나가사키', country:'일본' }, { city:'벳푸', country:'일본' }, { city:'센다이', country:'일본' },
+      // ─── 미국 ─────────────────────────────────────────────
+      { city:'뉴욕', country:'미국' }, { city:'로스앤젤레스', country:'미국' }, { city:'시카고', country:'미국' },
+      { city:'샌프란시스코', country:'미국' }, { city:'시애틀', country:'미국' }, { city:'보스턴', country:'미국' },
+      { city:'하와이', country:'미국' }, { city:'호놀룰루', country:'미국' }, { city:'라스베가스', country:'미국' },
+      { city:'마이애미', country:'미국' }, { city:'워싱턴DC', country:'미국' }, { city:'포틀랜드', country:'미국' },
+      { city:'덴버', country:'미국' }, { city:'오스틴', country:'미국' }, { city:'달라스', country:'미국' },
+      { city:'애틀랜타', country:'미국' }, { city:'내슈빌', country:'미국' }, { city:'뉴올리언스', country:'미국' },
+      { city:'샌디에이고', country:'미국' }, { city:'피닉스', country:'미국' },
+      // ─── 유럽 ─────────────────────────────────────────────
+      { city:'파리', country:'프랑스' }, { city:'니스', country:'프랑스' }, { city:'마르세유', country:'프랑스' },
+      { city:'리옹', country:'프랑스' }, { city:'보르도', country:'프랑스' },
+      { city:'런던', country:'영국' }, { city:'에든버러', country:'영국' }, { city:'맨체스터', country:'영국' },
+      { city:'바르셀로나', country:'스페인' }, { city:'마드리드', country:'스페인' }, { city:'세비야', country:'스페인' },
+      { city:'발렌시아', country:'스페인' }, { city:'그라나다', country:'스페인' },
+      { city:'로마', country:'이탈리아' }, { city:'밀라노', country:'이탈리아' }, { city:'베네치아', country:'이탈리아' },
+      { city:'피렌체', country:'이탈리아' }, { city:'나폴리', country:'이탈리아' }, { city:'아말피', country:'이탈리아' },
+      { city:'베를린', country:'독일' }, { city:'뮌헨', country:'독일' }, { city:'함부르크', country:'독일' },
+      { city:'프랑크푸르트', country:'독일' }, { city:'쾰른', country:'독일' },
+      { city:'암스테르담', country:'네덜란드' }, { city:'로테르담', country:'네덜란드' },
+      { city:'비엔나', country:'오스트리아' }, { city:'잘츠부르크', country:'오스트리아' },
+      { city:'취리히', country:'스위스' }, { city:'제네바', country:'스위스' }, { city:'인터라켄', country:'스위스' },
+      { city:'프라하', country:'체코' }, { city:'브르노', country:'체코' },
+      { city:'리스본', country:'포르투갈' }, { city:'포르토', country:'포르투갈' },
+      { city:'아테네', country:'그리스' }, { city:'테살로니키', country:'그리스' }, { city:'산토리니', country:'그리스' },
+      { city:'이스탄불', country:'터키' }, { city:'카파도키아', country:'터키' }, { city:'안탈리아', country:'터키' },
+      { city:'코펜하겐', country:'덴마크' }, { city:'스톡홀름', country:'스웨덴' }, { city:'오슬로', country:'노르웨이' },
+      { city:'헬싱키', country:'핀란드' }, { city:'레이캬비크', country:'아이슬란드' },
+      { city:'브뤼셀', country:'벨기에' }, { city:'더블린', country:'아일랜드' },
+      { city:'바르샤바', country:'폴란드' }, { city:'크라쿠프', country:'폴란드' },
+      { city:'부다페스트', country:'헝가리' }, { city:'부쿠레슈티', country:'루마니아' },
+      { city:'두브로브니크', country:'크로아티아' }, { city:'자그레브', country:'크로아티아' },
+      // ─── 동남/남아시아 ───────────────────────────────────────
+      { city:'방콕', country:'태국' }, { city:'치앙마이', country:'태국' }, { city:'푸켓', country:'태국' },
+      { city:'파타야', country:'태국' }, { city:'끄라비', country:'태국' },
+      { city:'싱가포르', country:'싱가포르' },
+      { city:'쿠알라룸푸르', country:'말레이시아' }, { city:'페낭', country:'말레이시아' }, { city:'코타키나발루', country:'말레이시아' },
+      { city:'자카르타', country:'인도네시아' }, { city:'발리', country:'인도네시아' }, { city:'족자카르타', country:'인도네시아' },
+      { city:'하노이', country:'베트남' }, { city:'호치민', country:'베트남' }, { city:'다낭', country:'베트남' },
+      { city:'푸꾸옥', country:'베트남' }, { city:'냐짱', country:'베트남' }, { city:'후에', country:'베트남' },
+      { city:'하이퐁', country:'베트남' }, { city:'호이안', country:'베트남' },
+      { city:'마닐라', country:'필리핀' }, { city:'세부', country:'필리핀' }, { city:'보라카이', country:'필리핀' },
+      { city:'프놈펜', country:'캄보디아' }, { city:'씨엠립', country:'캄보디아' },
+      { city:'양곤', country:'미얀마' }, { city:'바간', country:'미얀마' },
+      { city:'뭄바이', country:'인도' }, { city:'델리', country:'인도' }, { city:'뱅갈로르', country:'인도' },
+      { city:'콜카타', country:'인도' }, { city:'고아', country:'인도' }, { city:'자이푸르', country:'인도' },
+      // ─── 중국/홍콩/대만 ─────────────────────────────────────
+      { city:'베이징', country:'중국' }, { city:'상하이', country:'중국' }, { city:'청두', country:'중국' },
+      { city:'시안', country:'중국' }, { city:'항저우', country:'중국' }, { city:'광저우', country:'중국' },
+      { city:'선전', country:'중국' }, { city:'장자제', country:'중국' },
+      { city:'홍콩', country:'홍콩' }, { city:'마카오', country:'홍콩' },
+      { city:'타이페이', country:'대만' }, { city:'타이중', country:'대만' }, { city:'가오슝', country:'대만' },
+      // ─── 오세아니아 ────────────────────────────────────────
+      { city:'시드니', country:'호주' }, { city:'멜버른', country:'호주' }, { city:'브리즈번', country:'호주' },
+      { city:'퍼스', country:'호주' }, { city:'골드코스트', country:'호주' }, { city:'케언즈', country:'호주' },
+      { city:'오클랜드', country:'뉴질랜드' }, { city:'퀸스타운', country:'뉴질랜드' }, { city:'크라이스트처치', country:'뉴질랜드' },
+      // ─── 아메리카 ──────────────────────────────────────────
+      { city:'밴쿠버', country:'캐나다' }, { city:'토론토', country:'캐나다' }, { city:'몬트리올', country:'캐나다' },
+      { city:'캘거리', country:'캐나다' }, { city:'퀘벡', country:'캐나다' },
+      { city:'상파울루', country:'브라질' }, { city:'리우데자네이루', country:'브라질' }, { city:'브라질리아', country:'브라질' },
+      { city:'부에노스아이레스', country:'아르헨티나' }, { city:'멘도사', country:'아르헨티나' },
+      { city:'멕시코시티', country:'멕시코' }, { city:'칸쿤', country:'멕시코' }, { city:'과달라하라', country:'멕시코' },
+      { city:'리마', country:'페루' }, { city:'쿠스코', country:'페루' },
+      { city:'보고타', country:'콜롬비아' }, { city:'메데진', country:'콜롬비아' }, { city:'카르타헤나', country:'콜롬비아' },
+      { city:'키토', country:'에콰도르' }, { city:'갈라파고스', country:'에콰도르' },
+      { city:'산티아고', country:'칠레' }, { city:'파타고니아', country:'칠레' },
+      // ─── 중동/아프리카 ────────────────────────────────────
+      { city:'두바이', country:'아랍에미리트' }, { city:'아부다비', country:'아랍에미리트' },
+      { city:'도하', country:'카타르' }, { city:'텔아비브', country:'이스라엘' }, { city:'예루살렘', country:'이스라엘' },
+      { city:'케이프타운', country:'남아프리카' }, { city:'요하네스버그', country:'남아프리카' }, { city:'더반', country:'남아프리카' },
+      { city:'나이로비', country:'케냐' }, { city:'몸바사', country:'케냐' },
+      { city:'마라케시', country:'모로코' }, { city:'카사블랑카', country:'모로코' }, { city:'페스', country:'모로코' },
+      { city:'카이로', country:'이집트' }, { city:'룩소르', country:'이집트' }, { city:'아스완', country:'이집트' }, { city:'알렉산드리아', country:'이집트' },
+      { city:'아디스아바바', country:'에티오피아' }, { city:'아크라', country:'가나' }, { city:'라고스', country:'나이지리아' }, { city:'아부자', country:'나이지리아' },
+      { city:'다카르', country:'세네갈' }, { city:'잔지바르', country:'탄자니아' }, { city:'다르에스살람', country:'탄자니아' },
+      { city:'하라레', country:'짐바브웨' }, { city:'루사카', country:'잠비아' }, { city:'캄팔라', country:'우간다' },
+      { city:'킨샤사', country:'콩고민주공화국' }, { city:'아비장', country:'코트디부아르' },
+      { city:'빈트후크', country:'나미비아' }, { city:'가보로네', country:'보츠와나' }, { city:'마푸투', country:'모잠비크' },
+      // ─── 중동 ────────────────────────────────────────────
+      { city:'암만', country:'요르단' }, { city:'페트라', country:'요르단' }, { city:'아카바', country:'요르단' },
+      { city:'무스카트', country:'오만' }, { city:'살랄라', country:'오만' },
+      { city:'쿠웨이트시티', country:'쿠웨이트' }, { city:'마나마', country:'바레인' },
+      { city:'리야드', country:'사우디아라비아' }, { city:'제다', country:'사우디아라비아' }, { city:'메카', country:'사우디아라비아' },
+      { city:'베이루트', country:'레바논' }, { city:'다마스쿠스', country:'시리아' },
+      { city:'바그다드', country:'이라크' }, { city:'에르빌', country:'이라크' },
+      { city:'테헤란', country:'이란' }, { city:'이스파한', country:'이란' }, { city:'시라즈', country:'이란' },
+      // ─── 코카서스/중앙아시아 ────────────────────────────
+      { city:'트빌리시', country:'조지아' }, { city:'바투미', country:'조지아' },
+      { city:'예레반', country:'아르메니아' }, { city:'바쿠', country:'아제르바이잔' },
+      { city:'알마티', country:'카자흐스탄' }, { city:'누르술탄', country:'카자흐스탄' },
+      { city:'타슈켄트', country:'우즈베키스탄' }, { city:'사마르칸트', country:'우즈베키스탄' }, { city:'부하라', country:'우즈베키스탄' },
+      { city:'비슈케크', country:'키르기스스탄' }, { city:'두샨베', country:'타지키스탄' }, { city:'아슈하바트', country:'투르크메니스탄' },
+      // ─── 남아시아 / 히말라야 ─────────────────────────────
+      { city:'카트만두', country:'네팔' }, { city:'포카라', country:'네팔' },
+      { city:'팀부', country:'부탄' }, { city:'파로', country:'부탄' },
+      { city:'콜롬보', country:'스리랑카' }, { city:'캔디', country:'스리랑카' },
+      { city:'말레', country:'몰디브' },
+      { city:'다카', country:'방글라데시' }, { city:'치타공', country:'방글라데시' },
+      { city:'카라치', country:'파키스탄' }, { city:'라호르', country:'파키스탄' }, { city:'이슬라마바드', country:'파키스탄' },
+      { city:'카불', country:'아프가니스탄' },
+      { city:'바라나시', country:'인도' }, { city:'아그라', country:'인도' }, { city:'체나이', country:'인도' }, { city:'하이데라바드', country:'인도' },
+      // ─── 동남아시아 추가 ──────────────────────────────────
+      { city:'비엔티안', country:'라오스' }, { city:'루앙프라방', country:'라오스' },
+      { city:'딜리', country:'동티모르' },
+      { city:'반다르스리브가완', country:'브루나이' },
+      { city:'나피도', country:'미얀마' }, { city:'만달레이', country:'미얀마' },
+      // ─── 발트/동유럽 추가 ─────────────────────────────────
+      { city:'탈린', country:'에스토니아' }, { city:'리가', country:'라트비아' }, { city:'빌뉴스', country:'리투아니아' },
+      { city:'민스크', country:'벨라루스' }, { city:'키이우', country:'우크라이나' }, { city:'오데사', country:'우크라이나' },
+      { city:'류블랴나', country:'슬로베니아' }, { city:'사라예보', country:'보스니아헤르체고비나' },
+      { city:'스코페', country:'북마케도니아' }, { city:'포드고리차', country:'몬테네그로' }, { city:'티라나', country:'알바니아' },
+      { city:'베오그라드', country:'세르비아' }, { city:'소피아', country:'불가리아' },
+      { city:'키시너우', country:'몰도바' }, { city:'리예카', country:'크로아티아' },
+      // ─── 오세아니아/태평양 추가 ─────────────────────────
+      { city:'수바', country:'피지' }, { city:'난디', country:'피지' },
+      { city:'아피아', country:'사모아' }, { city:'누쿠알로파', country:'통가' },
+      { city:'포트빌라', country:'바누아투' }, { city:'포트모르즈비', country:'파푸아뉴기니' },
+      { city:'호니아라', country:'솔로몬제도' }, { city:'타라와', country:'키리바시' },
+      { city:'팔리키르', country:'미크로네시아' }, { city:'마주로', country:'마샬제도' },
+      // ─── 카리브/중미 ─────────────────────────────────────
+      { city:'아바나', country:'쿠바' }, { city:'트리니다드', country:'쿠바' },
+      { city:'산토도밍고', country:'도미니카공화국' }, { city:'포르토프랭스', country:'아이티' },
+      { city:'산호세', country:'코스타리카' }, { city:'파나마시티', country:'파나마' }, { city:'테구시갈파', country:'온두라스' },
+      { city:'과테말라시티', country:'과테말라' }, { city:'산살바도르', country:'엘살바도르' }, { city:'마나과', country:'니카라과' },
+      { city:'킹스턴', country:'자메이카' }, { city:'나소', country:'바하마' }, { city:'브리지타운', country:'바베이도스' },
+    ];
+
+    // Normalize country names to canonical form (deduplicate aliases)
+    const COUNTRY_ALIAS = {
+      '대한민국':'한국','남한':'한국','코리아':'한국',
+      '남아공':'남아프리카','사우스아프리카':'남아프리카','남아공화국':'남아프리카',
+      '미합중국':'미국','USA':'미국',
+      '타이완':'대만','臺灣':'대만',
+      '버마':'미얀마',
+      '도미니카':'도미니카공화국',
+      '엘살바도르':'엘살바도르',
+      '보스니아':'보스니아헤르체고비나','헤르체고비나':'보스니아헤르체고비나',
+      '마케도니아':'북마케도니아',
+      '체코슬로바키아':'체코',
+      '이란':'이란','페르시아':'이란',
+      '콩고':'콩고민주공화국','DRC':'콩고민주공화국',
+      '코트디부아르':'코트디부아르','아이보리코스트':'코트디부아르',
+    };
+    const normalizeCountry = (c) => {
+      if (!c) return '';
+      const t = c.trim();
+      return COUNTRY_ALIAS[t] || t;
+    };
+
+    const calcPace = (km, minutes) => {
+      const k = Number(km), m = Number(minutes);
+      if (!k || k <= 0 || !m || m <= 0) return null;
+      const total = m / k;
+      const mm = Math.floor(total);
+      const ss = Math.round((total - mm) * 60);
+      return { mm, ss, label: `${mm}'${String(ss).padStart(2,'0')}"` };
+    };
+
+    const fmtDate = (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+      return `${y}.${m}.${day}`;
+    };
+
+    const todayIso = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+
+    const loadRuns = () => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return SAMPLE_RUNS;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length === 0) return SAMPLE_RUNS;
+        return parsed;
+      } catch (e) {
+        return SAMPLE_RUNS;
+      }
+    };
+
+    const saveRuns = (runs) => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)); } catch(e){}
+    };
+
+    const loadUser = () => {
+      try {
+        const raw = localStorage.getItem(USER_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) { return null; }
+    };
+    const saveUser = (u) => {
+      try { localStorage.setItem(USER_KEY, JSON.stringify(u)); } catch(e){}
+    };
+    const clearUser = () => {
+      try { localStorage.removeItem(USER_KEY); } catch(e){}
+    };
+
+    const downloadCanvas = (canvas, filename) => {
+      try {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch(e){
+        alert('이미지를 저장할 수 없습니다.');
+      }
+    };
+
+    // ========================================
+    // Auth
+    // ========================================
+    function useAuth() {
+      const [user, setUser] = useState(() => loadUser());
+      const login = useCallback((data) => { saveUser(data); setUser(data); }, []);
+      const logout = useCallback(() => { clearUser(); setUser(null); }, []);
+      return { user, login, logout };
+    }
+    const AuthContext = createContext({ user: null, login: () => {}, logout: () => {} });
+    const useAuthCtx = () => useContext(AuthContext);
+
+    // ========================================
+    // Router (hash-based)
+    // ========================================
+    const RouterContext = createContext({ path: 'home', state: null, navigate: () => {} });
+
+    function Router({ children }) {
+      const [route, setRoute] = useState(() => parseHash());
+      function parseHash(){
+        const h = (window.location.hash || '#home').replace(/^#/, '');
+        return { path: h.split('?')[0] || 'home' };
+      }
+      const navStateRef = useRef(null);
+
+      const navigate = useCallback((path, state) => {
+        navStateRef.current = state ?? null;
+        if (`#${path}` !== window.location.hash) {
+          window.location.hash = `#${path}`;
+        } else {
+          setRoute({ path });
+        }
+      }, []);
+
+      useEffect(() => {
+        const onHash = () => setRoute(parseHash());
+        window.addEventListener('hashchange', onHash);
+        if (!window.location.hash) window.location.hash = '#home';
+        return () => window.removeEventListener('hashchange', onHash);
+      }, []);
+
+      const value = useMemo(() => ({
+        path: route.path,
+        state: navStateRef.current,
+        navigate
+      }), [route.path, navigate]);
+
+      return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
+    }
+
+    const useRouter = () => useContext(RouterContext);
+
+    // ========================================
+    // Marked Logo (wax-seal mark)
+    // ========================================
+    function MarkedLogo({ size = 40, dark = false }) {
+      const circleColor = dark ? '#FF6B4A' : '#111111';
+      const textColor = '#FFFFFF';
+      const r = size / 2;
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} fill="none" aria-label="Marked">
+          <circle cx={r} cy={r} r={r} fill={circleColor} />
+          <text
+            x={r} y={r * 1.38}
+            textAnchor="middle"
+            fontFamily='"MD Sans", "Inter", "Noto Sans KR", sans-serif'
+            fontSize={size * 0.42}
+            fontWeight="700"
+            fill={textColor}
+          >M.</text>
+        </svg>
+      );
+    }
+
+    // ========================================
+    // Design System
+    // ========================================
+    function Button({ children, variant='primary', size='md', className='', ...rest }) {
+      const base = 'inline-flex items-center justify-center font-medium rounded-full transition active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed';
+      const sizes = {
+        sm: 'px-4 py-2 text-sm',
+        md: 'px-6 py-3 text-sm',
+        lg: 'px-6 py-3.5 text-base'
+      };
+      const variants = {
+        primary:   'bg-ink text-white hover:bg-black',
+        secondary: 'bg-transparent border-2 border-ink text-ink hover:bg-ink hover:text-white',
+        coral:     'bg-coral text-white hover:opacity-90',
+        ghost:     'bg-transparent text-ink hover:bg-border',
+      };
+      return (
+        <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} {...rest}>{children}</button>
+      );
+    }
+
+    function Card({ children, className='', ...rest }) {
+      return (
+        <div className={`bg-white border border-border rounded-2xl card-shadow ${className}`} {...rest}>{children}</div>
+      );
+    }
+
+    function Field({ label, children, hint }) {
+      return (
+        <label className="block">
+          <div className="mb-2 text-ink text-xs font-medium uppercase tracking-widest">{label}</div>
+          {children}
+          {hint && <p className="text-xs text-muted mt-1.5">{hint}</p>}
+        </label>
+      );
+    }
+
+    function Input({ className='', ...rest }) {
+      return (
+        <input
+          {...rest}
+          className={`w-full bg-white text-ink placeholder-muted border border-border rounded-xl px-4 py-3 outline-none focus:border-ink transition ${className}`}
+        />
+      );
+    }
+
+    function Textarea({ className='', ...rest }) {
+      return (
+        <textarea
+          {...rest}
+          className={`w-full bg-white text-ink placeholder-muted border border-border rounded-xl px-4 py-3 outline-none focus:border-ink transition min-h-[96px] resize-none ${className}`}
+        />
+      );
+    }
+
+    function Badge({ children, className='' }) {
+      return (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-ink text-ink bg-white ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    // ========================================
+    // City Search (Korean-only dropdown)
+    // ========================================
+    function CitySearch({ city, country, onSelect }) {
+      const [query, setQuery] = useState(city || '');
+      const [open, setOpen] = useState(false);
+      const containerRef = useRef(null);
+
+      useEffect(() => { setQuery(city || ''); }, [city]);
+
+      useEffect(() => {
+        const onClick = (e) => {
+          if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onClick);
+        return () => document.removeEventListener('mousedown', onClick);
+      }, []);
+
+      const filtered = useMemo(() => {
+        if (!query.trim()) return CITIES_KR.slice(0, 12);
+        return CITIES_KR.filter(c =>
+          c.city.includes(query) || c.country.includes(query)
+        ).slice(0, 12);
+      }, [query]);
+
+      // Check if the typed query exactly matches a city in the list
+      const hasExactMatch = useMemo(() =>
+        filtered.some(c => c.city === query.trim()),
+      [filtered, query]);
+
+      const handleSelect = (item) => {
+        setQuery(item.city);
+        onSelect(item.city, item.country);
+        setOpen(false);
+      };
+
+      const handleCustomSelect = () => {
+        const t = query.trim();
+        if (!t) return;
+        onSelect(t, country); // keep existing country, user fills separately
+        setOpen(false);
+      };
+
+      const showDropdown = open && (filtered.length > 0 || (query.trim() && !hasExactMatch));
+
+      return (
+        <div ref={containerRef} className="relative">
+          <input
+            value={query}
+            onChange={e => { setQuery(e.target.value); setOpen(true); onSelect(e.target.value, country); }}
+            onFocus={() => setOpen(true)}
+            placeholder="도시 검색 또는 직접 입력"
+            className="w-full bg-white border border-border rounded-xl px-4 py-3 text-ink placeholder-muted focus:border-ink outline-none"
+          />
+          {showDropdown && (
+            <div className="absolute z-50 w-full bg-white border border-border rounded-xl mt-1 shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+              {filtered.map((item, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseDown={(e)=>{ e.preventDefault(); handleSelect(item); }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-bg flex items-center justify-between text-sm border-b border-border last:border-0"
+                >
+                  <span className="font-medium">{item.city}</span>
+                  <span className="text-muted text-xs">{flagOf(item.country)} {item.country}</span>
+                </button>
+              ))}
+              {query.trim() && !hasExactMatch && (
+                <button
+                  type="button"
+                  onMouseDown={(e)=>{ e.preventDefault(); handleCustomSelect(); }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-bg flex items-center gap-2 text-sm text-ink border-t border-border"
+                >
+                  <span className="text-base">＋</span>
+                  <span>직접 입력: <strong>{query.trim()}</strong></span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // Inline icon set
+    // ========================================
+    const Icon = {
+      Home:  (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>),
+      Plus:  (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" {...p}><path d="M12 5v14M5 12h14"/></svg>),
+      List:  (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" {...p}><path d="M4 6h16M4 12h16M4 18h16"/></svg>),
+      Back:  (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M15 6l-6 6 6 6"/></svg>),
+      Photo: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m4 18 5-5 4 4 3-3 4 4"/></svg>),
+      Trash: (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>),
+      User:  (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>),
+      Logout:(p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>),
+      Run:   (p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>),
+      Person:(p) => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>),
+      Map: (p) => (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          <circle cx="12" cy="9" r="2.5"/>
+        </svg>
+      ),
+    };
+
+    // ========================================
+    // Phone Frame
+    // ========================================
+    function PhoneFrame({ children }) {
+      return (
+        <div className="min-h-screen bg-bg">
+          <div className="max-w-sm mx-auto min-h-screen bg-bg pb-24 relative">
+            {children}
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Top Bar (consistent header for inner pages)
+    // ========================================
+    function TopBar({ title, onBack, right }) {
+      return (
+        <div className="sticky top-0 z-10 bg-bg/90 backdrop-blur border-b border-border">
+          <div className="flex items-center justify-between px-5 h-14">
+            <div className="flex items-center gap-3 min-w-0">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="-ml-2 w-8 h-8 flex items-center justify-center text-ink hover:opacity-70 transition"
+                  aria-label="뒤로"
+                >
+                  <Icon.Back width="20" height="20"/>
+                </button>
+              )}
+              <h1 className="text-2xl text-ink truncate font-bold">{title}</h1>
+            </div>
+            <div className="shrink-0">{right}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Bottom Navigation
+    // ========================================
+    function BottomNav() {
+      const { path, navigate } = useRouter();
+      const { user } = useAuthCtx();
+
+      const items = user ? [
+        { key: 'home',    label: '홈',     icon: Icon.Home },
+        { key: 'record',  label: '기록',   icon: Icon.Run  },
+        { key: 'explore', label: '탐색',   icon: Icon.Map  },
+        { key: 'profile', label: '프로필', icon: Icon.Person },
+      ] : [
+        { key: 'home',    label: '홈',     icon: Icon.Home },
+        { key: 'login',   label: '로그인', icon: Icon.User },
+      ];
+
+      return (
+        <div className="fixed bottom-0 inset-x-0 z-30 pointer-events-none">
+          <div className="max-w-sm mx-auto pointer-events-auto">
+            <div className="bg-white border-t border-border flex items-center justify-around py-2">
+              {items.map(item => {
+                const active = path === item.key || (item.key === 'home' && (path === '' || path === 'home'));
+                const I = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => navigate(item.key)}
+                    className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 transition ${active ? 'text-coral' : 'text-muted hover:text-ink'}`}
+                    aria-label={item.label}
+                  >
+                    <I width="22" height="22"/>
+                    <span className="text-[11px] font-medium">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Page: Login
+    // ========================================
+    function LoginPage() {
+      const { navigate } = useRouter();
+      const { login } = useAuthCtx();
+      const [mode, setMode] = useState('login');
+      const [name, setName] = useState('');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      const valid = mode === 'signup'
+        ? name.trim() && email.trim() && password.trim()
+        : email.trim() && password.trim();
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!valid || loading) return;
+        setError('');
+        setLoading(true);
+        try {
+          let userData;
+          if (mode === 'signup') {
+            userData = await api.post('/api/auth/register', { name: name.trim(), email: email.trim(), password });
+          } else {
+            userData = await api.post('/api/auth/login', { email: email.trim(), password });
+          }
+          login(userData);
+          navigate('home');
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <PhoneFrame>
+          <div className="px-6 pt-12 slide-up">
+            {/* Logo + wordmark */}
+            <div className="flex flex-col items-center text-center mb-10">
+              <MarkedLogo size={64} />
+              <h1 className="text-5xl text-ink mt-4" style={{fontFamily:"'MD Sans', 'Inter', 'Noto Sans KR', sans-serif", fontWeight:700}}>Marked.</h1>
+              <p className="text-muted text-base mt-2">
+                Leave your mark, Color your world.
+              </p>
+            </div>
+
+            {/* Tabs */}
+            <div className="grid grid-cols-2 mb-6 bg-white border border-border rounded-full p-1">
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className={`py-2.5 rounded-full text-sm font-medium transition ${mode==='login' ? 'bg-ink text-white' : 'text-ink'}`}
+              >로그인</button>
+              <button
+                type="button"
+                onClick={() => setMode('signup')}
+                className={`py-2.5 rounded-full text-sm font-medium transition ${mode==='signup' ? 'bg-ink text-white' : 'text-ink'}`}
+              >회원가입</button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {mode === 'signup' && (
+                <Field label="이름">
+                  <Input placeholder="이름을 입력하세요" value={name} onChange={e=>setName(e.target.value)} />
+                </Field>
+              )}
+              <Field label="이메일">
+                <Input type="email" placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)} />
+              </Field>
+              <Field label="비밀번호">
+                <Input type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} />
+              </Field>
+
+              {error && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  {error}
+                </div>
+              )}
+
+              <Button type="submit" variant="coral" size="lg" className="w-full mt-2" disabled={!valid || loading}>
+                {loading ? '처리 중…' : (mode === 'login' ? '로그인하기' : '계정 만들기')}
+              </Button>
+            </form>
+
+            <button
+              onClick={() => navigate('home')}
+              className="block mx-auto text-center text-xs text-muted mt-8 hover:text-ink transition"
+            >
+              ← 둘러보기로 돌아가기
+            </button>
+          </div>
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Color palette (PRESERVED)
+    // ========================================
+    const COLOR_PRESETS = [
+      { id:'navy',     name:'Midnight',  from:'#0B1E3F', to:'#1F3A6E', accent:'#7AA7FF' },
+      { id:'terra',    name:'Terracotta',from:'#3A1A12', to:'#B5563B', accent:'#FFD0A8' },
+      { id:'forest',   name:'Forest',    from:'#0E2A1E', to:'#2F6E4E', accent:'#A8E0BB' },
+      { id:'lavender', name:'Lavender',  from:'#2B1B3D', to:'#7B5BB8', accent:'#E5C9FF' },
+      { id:'sunset',   name:'Sunset',    from:'#2D0F1A', to:'#FF6B4A', accent:'#FFE0AC' },
+      { id:'ink',      name:'Ink Blue',  from:'#06121F', to:'#1F4E79', accent:'#86C8FF' },
+    ];
+
+    // ========================================
+    // Helpers — 6-color NYT-tile system
+    // ========================================
+    const TILE_COLORS = [
+      { bg:'#FF6B4A', text:'#FFFFFF' }, // coral
+      { bg:'#111111', text:'#FFFFFF' }, // ink
+      { bg:'#4A7C59', text:'#FFFFFF' }, // sage
+      { bg:'#E8A020', text:'#111111' }, // amber
+      { bg:'#4A6CF7', text:'#FFFFFF' }, // blue
+      { bg:'#9B59B6', text:'#FFFFFF' }, // purple
+    ];
+    const tileFor = (id) => {
+      const n = typeof id === 'string' ? id.split('').reduce((a,c)=>a+c.charCodeAt(0),0) : Number(id)||0;
+      return TILE_COLORS[n % TILE_COLORS.length];
+    };
+
+    // ========================================
+    // Stat (large number + small label)
+    // ========================================
+    function StatBig({ value, label }) {
+      return (
+        <div className="flex-1 text-center">
+          <div className="text-3xl text-ink leading-none font-bold">{value}</div>
+          <div className="text-[10px] text-muted mt-1.5 uppercase tracking-widest font-medium">{label}</div>
+        </div>
+      );
+    }
+    function VRule() { return <div className="w-px h-10 bg-border"></div>; }
+
+    // ========================================
+    // Run Card (compact, shared)
+    // ========================================
+    function RunCard({ run, onOpen, showCountry=true }) {
+      const pace = calcPace(run.km, run.minutes);
+      const tile = tileFor(run.id);
+      return (
+        <button onClick={onOpen} className="w-full text-left">
+          <Card className="p-3.5 hover:border-ink transition">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: tile.bg }}>
+                <span className="font-black text-white" style={{fontSize:'13px',letterSpacing:'0.08em'}}>{codeOf(run.country)}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-ink truncate" style={{fontSize:'16px'}}>{run.city}</h3>
+                {showCountry && (
+                  <div className="text-[11px] text-muted mt-0.5">{run.country}</div>
+                )}
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-sm font-bold text-ink">{Number(run.km).toFixed(1)} km</div>
+                <div className="text-[11px] text-muted">{pace ? pace.label : '—'} · {fmtDate(run.date)}</div>
+              </div>
+            </div>
+          </Card>
+        </button>
+      );
+    }
+
+    // ========================================
+    // Community Card (for non-logged-in home)
+    // ========================================
+    function CommunityCard({ run }) {
+      const pace = calcPace(run.km, run.minutes);
+      const tile = tileFor(run.id);
+      return (
+        <Card className="p-3.5 hover:border-ink transition">
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: tile.bg }}>
+              <span className="font-black text-white" style={{fontSize:'13px',letterSpacing:'0.08em'}}>{codeOf(run.country)}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-ink text-sm truncate">{run.user || run.user_name}</div>
+              <div className="text-[11px] text-muted mt-0.5">{run.city} · {run.country}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-sm text-ink font-bold">{Number(run.km).toFixed(1)} km</div>
+              <div className="text-[11px] text-muted">{pace ? pace.label : '—'}</div>
+              <div className="text-[10px] text-muted mt-0.5">{fmtDate(run.date)}</div>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // Visited Countries Globe
+    // ========================================
+    const COUNTRY_ISO_NUM = {
+      '한국':410,'일본':392,'중국':156,'홍콩':344,'대만':158,'몽골':496,
+      '미국':840,'캐나다':124,'멕시코':484,
+      '프랑스':250,'영국':826,'독일':276,'스페인':724,'이탈리아':380,
+      '포르투갈':620,'그리스':300,'네덜란드':528,'벨기에':56,
+      '스위스':756,'오스트리아':40,'체코':203,'헝가리':348,
+      '폴란드':616,'덴마크':208,'스웨덴':752,'노르웨이':578,'핀란드':246,
+      '아이슬란드':352,'아일랜드':372,'크로아티아':191,'루마니아':642,
+      '불가리아':100,'세르비아':688,'슬로베니아':705,'알바니아':8,
+      '보스니아헤르체고비나':70,'몬테네그로':499,'북마케도니아':807,
+      '에스토니아':233,'라트비아':428,'리투아니아':440,'벨라루스':112,
+      '터키':792,'러시아':643,'우크라이나':804,'몰도바':498,
+      '조지아':268,'아르메니아':51,'아제르바이잔':31,
+      '태국':764,'싱가포르':702,'말레이시아':458,'인도네시아':360,
+      '베트남':704,'필리핀':608,'캄보디아':116,'미얀마':104,'라오스':418,
+      '브루나이':96,'동티모르':626,
+      '인도':356,'방글라데시':50,'스리랑카':144,'파키스탄':586,
+      '네팔':524,'부탄':64,'몰디브':462,'아프가니스탄':4,
+      '카자흐스탄':398,'우즈베키스탄':860,'키르기스스탄':417,
+      '타지키스탄':762,'투르크메니스탄':795,
+      '호주':36,'뉴질랜드':554,'피지':242,'파푸아뉴기니':598,
+      '브라질':76,'아르헨티나':32,'콜롬비아':170,'페루':604,
+      '칠레':152,'에콰도르':218,'볼리비아':68,'우루과이':858,'파라과이':600,
+      '쿠바':192,'자메이카':388,'도미니카공화국':214,'아이티':332,
+      '코스타리카':188,'파나마':591,'과테말라':320,'온두라스':340,
+      '엘살바도르':222,'니카라과':558,
+      '아랍에미리트':784,'카타르':634,'이스라엘':376,'요르단':400,
+      '오만':512,'쿠웨이트':414,'바레인':48,'사우디아라비아':682,
+      '레바논':422,'이란':364,'이라크':368,
+      '이집트':818,'모로코':504,'튀니지':788,'알제리':12,
+      '케냐':404,'탄자니아':834,'에티오피아':231,'우간다':800,
+      '가나':288,'나이지리아':566,'세네갈':686,'코트디부아르':384,
+      '남아프리카':710,'짐바브웨':716,'잠비아':894,'모잠비크':508,
+      '나미비아':516,'보츠와나':72,'마다가스카르':450,
+      '콩고민주공화국':180,'앙골라':24,'카메룬':120,
+    };
+
+    // Shared world atlas cache — loaded once, reused by globe + stamp
+    let _worldAtlas = null;
+    const _worldAtlasCbs = [];
+    function loadWorldAtlas() {
+      if (_worldAtlas) return Promise.resolve(_worldAtlas);
+      return fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json')
+        .then(r => r.json())
+        .then(w => { _worldAtlas = w; _worldAtlasCbs.forEach(cb => cb(w)); _worldAtlasCbs.length = 0; return w; });
+    }
+
+    function WorldGlobe({ visitedCountries }) {
+      const svgRef = useRef(null);
+      const rotRef = useRef([127, -37]);
+      const [ready, setReady] = useState(false);
+      const worldRef = useRef(null);
+
+      useEffect(() => {
+        if (!window.d3 || !window.topojson) return;
+        loadWorldAtlas().then(w => { worldRef.current = w; setReady(true); }).catch(() => {});
+      }, []);
+
+      useEffect(() => {
+        if (!ready || !svgRef.current || !worldRef.current) return;
+        const { d3, topojson: tp } = window;
+        const W = 270, H = 270;
+        const world = worldRef.current;
+
+        const visitedSet = new Set(
+          visitedCountries.map(n => COUNTRY_ISO_NUM[n]).filter(Boolean)
+        );
+
+        const proj = d3.geoOrthographic()
+          .scale(125).translate([W/2, H/2])
+          .rotate(rotRef.current).clipAngle(90);
+        const pathGen = d3.geoPath().projection(proj);
+        const countries = tp.feature(world, world.objects.countries);
+        const graticule = d3.geoGraticule()();
+
+        const svg = d3.select(svgRef.current);
+        svg.selectAll('*').remove();
+
+        svg.append('circle').attr('cx',W/2).attr('cy',H/2).attr('r',125)
+          .attr('fill','#ECEAE5').attr('stroke','#D5D2CB').attr('stroke-width',1);
+
+        const gLine = svg.append('path').datum(graticule)
+          .attr('fill','none').attr('stroke','#D0CEC8').attr('stroke-width',0.4);
+
+        const cPaths = svg.selectAll('path.c').data(countries.features)
+          .join('path').attr('class','c')
+          .attr('fill', d => visitedSet.has(Number(d.id)) ? '#111111' : '#C8C5BE')
+          .attr('stroke','#ECEAE5').attr('stroke-width',0.5);
+
+        const redraw = () => { gLine.attr('d',pathGen); cPaths.attr('d',pathGen); };
+        redraw();
+
+        let dragging = false;
+        svg.call(d3.drag()
+          .on('start', () => { dragging = true; })
+          .on('drag', e => {
+            const r = rotRef.current;
+            rotRef.current = [r[0]+e.dx*0.4, Math.max(-70,Math.min(70,r[1]-e.dy*0.4))];
+            proj.rotate(rotRef.current); redraw();
+          })
+          .on('end', () => { dragging = false; })
+        );
+
+        let animId, prev = null;
+        const tick = t => {
+          if (!dragging) {
+            if (prev !== null) {
+              rotRef.current = [rotRef.current[0]+(t-prev)*0.013, rotRef.current[1]];
+              proj.rotate(rotRef.current); redraw();
+            }
+            prev = t;
+          } else { prev = null; }
+          animId = requestAnimationFrame(tick);
+        };
+        animId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(animId);
+      }, [ready, visitedCountries]);
+
+      if (!ready) return (
+        <div className="flex items-center justify-center" style={{width:270,height:270}}>
+          <span className="text-xs text-muted">지도 로딩 중...</span>
+        </div>
+      );
+      return <svg ref={svgRef} width={270} height={270} style={{cursor:'grab',display:'block',touchAction:'none'}} />;
+    }
+
+    // ========================================
+    // Page: Home — Community (not logged in)
+    // ========================================
+    function HomeCommunity() {
+      const { navigate } = useRouter();
+      const [communityRuns, setCommunityRuns] = useState(COMMUNITY_RUNS);
+
+      useEffect(() => {
+        api.get('/api/community-runs')
+          .then(data => {
+            if (data.length > 0)
+              setCommunityRuns(data.map(r => ({ ...r, user: r.user_name, km: parseFloat(r.km) })));
+          })
+          .catch(() => {});
+      }, []);
+
+      const stats = useMemo(() => {
+        const cities = new Set(communityRuns.map(r => `${r.country}/${r.city}`));
+        const countries = new Set(communityRuns.map(r => r.country));
+        const runners = new Set(communityRuns.map(r => r.user || r.user_name));
+        return { cities: cities.size, countries: countries.size, runners: runners.size };
+      }, [communityRuns]);
+
+      return (
+        <PhoneFrame>
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-5 h-14 border-b border-border">
+            <div className="flex items-center gap-2">
+              <MarkedLogo size={36} />
+              <span className="text-xl text-ink" style={{fontFamily:"'MD Sans', 'Inter', 'Noto Sans KR', sans-serif", fontWeight:700}}>Marked.</span>
+            </div>
+            <button
+              onClick={() => navigate('login')}
+              className="text-sm text-ink underline underline-offset-2 hover:text-coral transition"
+            >
+              로그인
+            </button>
+          </div>
+
+          {/* Hero — editorial layout */}
+          <div className="px-6 pt-8 pb-6 fade-up">
+            <h1 className="text-ink leading-[0.92] tracking-tight" style={{fontSize:'60px', fontWeight:900}}>
+              Leave<br/>your mark.
+            </h1>
+            <button
+              onClick={() => navigate('login')}
+              className="mt-6 inline-flex items-center gap-2 bg-coral text-white rounded-full px-6 py-3 text-sm font-bold hover:opacity-90 transition"
+            >
+              지금 시작하기 <span aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          {/* Stats strip — colored tiles */}
+          <div className="px-6 pb-6 fade-up">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { val:stats.countries, label:'나라',   color:'#FF6B4A', text:'#fff' },
+                { val:stats.cities,    label:'도시',   color:'#111111', text:'#fff' },
+                { val:stats.runners,   label:'러너',   color:'#4A7C59', text:'#fff' },
+              ].map(s => (
+                <div key={s.label} className="rounded-2xl py-3 text-center" style={{background:s.color,color:s.text}}>
+                  <div className="text-2xl font-black leading-none">{s.val}</div>
+                  <div className="text-[10px] opacity-70 mt-1 uppercase tracking-widest">{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Hairline divider */}
+          <div className="border-t hairline mx-6"></div>
+
+          {/* Community feed */}
+          <div className="px-6 pt-6 fade-up">
+            <h2 className="text-ink mb-1 font-black" style={{fontSize:'22px'}}>이번 주 활동</h2>
+            <p className="text-xs text-muted mb-4 uppercase tracking-widest">Community Feed</p>
+
+            <div className="space-y-2.5">
+              {communityRuns.map(r => <CommunityCard key={r.id} run={r} />)}
+            </div>
+          </div>
+
+          {/* Sticky CTA */}
+          <div className="px-6 mt-8 mb-2">
+            <button
+              onClick={() => navigate('login')}
+              className="w-full bg-coral text-white font-bold py-3.5 rounded-full hover:opacity-90 transition active:scale-[0.98]"
+            >
+              나도 기록 남기기 →
+            </button>
+          </div>
+
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Page: Home — Personal (logged in)
+    // ========================================
+    function HomePersonal({ runs }) {
+      const { navigate } = useRouter();
+      const { user } = useAuthCtx();
+
+      const stats = useMemo(() => {
+        const countriesSet = new Set(runs.map(r => normalizeCountry(r.country)).filter(Boolean));
+        const cities = new Set(runs.map(r => `${normalizeCountry(r.country)}/${r.city?.trim()}`).filter(Boolean));
+        const totalKm = runs.reduce((s,r) => s + Number(r.km || 0), 0);
+        return { countries: countriesSet.size, countriesList: [...countriesSet], cities: cities.size, totalKm };
+      }, [runs]);
+
+      const recent = useMemo(() => {
+        return [...runs].sort((a,b) => (b.date || '').localeCompare(a.date || '')).slice(0, 3);
+      }, [runs]);
+
+      const initial = (user?.name || user?.email || 'U').slice(0,1).toUpperCase();
+
+      return (
+        <PhoneFrame>
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-5 h-14 border-b border-border">
+            <div className="flex items-center gap-2">
+              <MarkedLogo size={36} />
+              <span className="text-xl text-ink" style={{fontFamily:"'MD Sans', 'Inter', 'Noto Sans KR', sans-serif", fontWeight:700}}>Marked.</span>
+            </div>
+            <button
+              onClick={() => navigate('profile')}
+              className="w-9 h-9 rounded-full bg-ink text-white flex items-center justify-center text-sm font-bold"
+              aria-label="프로필"
+            >
+              {initial}
+            </button>
+          </div>
+
+          {/* Greeting */}
+          <div className="px-6 pt-7 pb-4 fade-up">
+            <p className="text-[10px] text-muted uppercase tracking-widest font-medium">Welcome back</p>
+            <h2 className="text-ink mt-1 font-black" style={{fontSize:'34px'}}>{user?.name}</h2>
+            <p className="text-xs text-muted mt-1.5 italic">Leave your mark, Color your world.</p>
+          </div>
+
+          {/* Stats — NYT colored tiles */}
+          <div className="px-6 pb-6 fade-up">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { val: stats.countries, label:'나라',   color:'#FF6B4A', text:'#fff' },
+                { val: stats.cities,    label:'도시',   color:'#111111', text:'#fff' },
+                { val: stats.totalKm.toFixed(1), label:'km', color:'#4A7C59', text:'#fff' },
+              ].map(s => (
+                <div key={s.label} className="rounded-2xl p-4 text-center" style={{background:s.color,color:s.text}}>
+                  <div className="text-3xl font-black leading-none">{s.val}</div>
+                  <div className="text-[10px] opacity-75 mt-1.5 uppercase tracking-widest font-medium">{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Coral pill CTA */}
+          <div className="px-6 fade-up">
+            <button
+              onClick={() => navigate('record')}
+              className="w-full bg-coral text-white font-bold py-3.5 rounded-full hover:opacity-90 transition active:scale-[0.98] flex items-center justify-center gap-2"
+            >
+              <Icon.Plus width="18" height="18"/>
+              <span>새 기록</span>
+            </button>
+          </div>
+
+          {/* Visited Countries Globe */}
+          <section className="px-6 mt-8 fade-up">
+            <h3 className="text-xs text-muted uppercase tracking-widest font-medium mb-4">내가 달린 나라</h3>
+            <div className="rounded-2xl border border-border bg-white overflow-hidden card-shadow">
+              <div className="flex justify-center pt-4">
+                <WorldGlobe visitedCountries={stats.countriesList} />
+              </div>
+              {stats.countriesList.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 px-4 py-3">
+                  {stats.countriesList.map(c => (
+                    <span key={c} className="text-[11px] bg-ink text-white px-2 py-0.5 rounded-full font-medium">{c}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted text-center py-4">기록을 추가하면 지구본에 표시됩니다.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Recent runs */}
+          <section className="px-6 mt-8 mb-4 fade-up">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs text-muted uppercase tracking-widest font-medium">최근 러닝</h3>
+              <button onClick={() => navigate('history')} className="text-xs text-ink hover:text-muted transition">
+                전체 보기 →
+              </button>
+            </div>
+
+            {recent.length === 0 ? (
+              <Card className="p-6 text-center">
+                <p className="text-muted text-sm">아직 기록이 없어요. 첫 러닝을 기록해보세요.</p>
+              </Card>
+            ) : (
+              <div className="space-y-2.5">
+                {recent.map(r => <RunCard key={r.id} run={r} onOpen={() => navigate('stamp', r)} />)}
+              </div>
+            )}
+          </section>
+
+          {/* FAB */}
+          <button
+            onClick={() => navigate('record')}
+            className="fixed bottom-24 z-20 w-14 h-14 rounded-full bg-coral text-white flex items-center justify-center hover:opacity-90 active:scale-95 transition card-shadow"
+            style={{ right: 'max(20px, calc(50% - 168px))' }}
+            aria-label="새 기록"
+          >
+            <Icon.Plus width="24" height="24" />
+          </button>
+
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Page: Record
+    // ========================================
+    function RecordPage({ onSave }) {
+      const { navigate } = useRouter();
+      const [city, setCity] = useState('');
+      const [country, setCountry] = useState('');
+      const [date, setDate] = useState(todayIso());
+      const [km, setKm] = useState('');
+      const [minutes, setMinutes] = useState('');
+      const [memo, setMemo] = useState('');
+
+      const pace = calcPace(km, minutes);
+
+      const valid = city.trim() && country.trim() && date && Number(km) > 0 && Number(minutes) > 0;
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!valid) return;
+        const newRun = {
+          id: Date.now(),
+          city: city.trim(),
+          country: normalizeCountry(country),
+          date,
+          km: Number(km),
+          minutes: Number(minutes),
+          memo: memo.trim()
+        };
+        const saved = await onSave(newRun);
+        navigate('stamp', saved || newRun);
+      };
+
+      return (
+        <PhoneFrame>
+          <TopBar title="러닝 기록" onBack={() => navigate('home')} />
+
+          <form onSubmit={handleSubmit} className="px-6 pt-6 space-y-4 fade-up">
+            <Card className="p-5 space-y-4">
+              <Field label="도시">
+                <CitySearch
+                  city={city}
+                  country={country}
+                  onSelect={(c, cn) => { setCity(c); if (cn) setCountry(cn); }}
+                />
+              </Field>
+              <Field label="국가">
+                <Input
+                  placeholder="국가 입력 (예: 한국, 미국)"
+                  value={country}
+                  onChange={e => setCountry(e.target.value)}
+                />
+              </Field>
+              <Field label="날짜">
+                <Input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="거리 (km)">
+                  <Input type="number" step="0.1" min="0" placeholder="0.0" value={km} onChange={e=>setKm(e.target.value)} />
+                </Field>
+                <Field label="시간 (분)">
+                  <Input type="number" step="1" min="0" placeholder="0" value={minutes} onChange={e=>setMinutes(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="페이스">
+                <div className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-ink font-medium">
+                  {pace ? `${pace.label} / km` : <span className="text-muted">—</span>}
+                </div>
+              </Field>
+              <Field label="메모">
+                <Textarea placeholder="기억하고 싶은 코스, 날씨, 기분" value={memo} onChange={e=>setMemo(e.target.value)} />
+              </Field>
+            </Card>
+
+            <Button type="submit" variant="coral" size="lg" className="w-full" disabled={!valid}>
+              스탬프 만들기 →
+            </Button>
+          </form>
+
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Stamp Templates (4 ShareAura-inspired)
+    // ========================================
+    const STORY_BG_COLORS = [
+      'photo',    // 사진만 (투명)
+      '#111111',  // 블랙
+      '#FFFFFF',  // 화이트
+      '#4F8EF7',  // 블루
+      '#34C98E',  // 민트
+      '#F5C842',  // 옐로
+      '#F06292',  // 핑크
+      '#A87CF7',  // 퍼플
+    ];
+
+    const STAMP_TEMPLATES = [
+      { id:'mapstamp', label:'지도'       },
+      { id:'city',     label:'도시/국가' },
+      { id:'logo',     label:'로고'      },
+      { id:'line',     label:'라인'      },
+      { id:'passport', label:'여권도장'   },
+    ];
+
+    // ========================================
+    // Page: Stamp Creator (unified, draggable + scalable)
+    // ========================================
+    function StampPage({ initial }) {
+      const { navigate } = useRouter();
+      const run = initial || { city:'서울', country:'한국', date:todayIso(), km:5.0, minutes:30, memo:'' };
+      const pace = calcPace(run.km, run.minutes);
+      const fileRef = useRef(null);
+      const canvasRef = useRef(null);
+
+      const [imgUrl, setImgUrl]       = useState(null);
+      const [template, setTemplate]   = useState('mapstamp');
+      const [bgColorIdx, setBgColorIdx] = useState(0);
+      const [offset, setOffset]       = useState({ x:0, y:0 });
+      const [isDragging, setIsDragging] = useState(false);
+      const [lang, setLang] = useState('ko');
+      const [mapReady, setMapReady] = useState(!!_worldAtlas);
+      const dragRef = useRef({ active:false, sx:0, sy:0, ox:0, oy:0 });
+
+      // Pre-load world atlas when map template is selected
+      useEffect(() => {
+        if (template === 'mapstamp' && !_worldAtlas) {
+          loadWorldAtlas().then(() => setMapReady(true)).catch(() => {});
+        }
+      }, [template]);
+
+      const handleFile = (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = ev => setImgUrl(ev.target.result);
+        reader.readAsDataURL(f);
+      };
+
+      // Reset offset when template changes
+      useEffect(() => { setOffset({ x:0, y:0 }); }, [template]);
+
+      // Canvas pointer/touch helpers
+      const canvasScale = (e) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return { x:0, y:0 };
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (cx - rect.left) * (900 / rect.width), y: (cy - rect.top) * (1200 / rect.height) };
+      };
+
+      const handlePointerDown = (e) => {
+        e.preventDefault();
+        const p = canvasScale(e);
+        dragRef.current = { active:true, sx:p.x, sy:p.y, ox:offset.x, oy:offset.y };
+        setIsDragging(true);
+      };
+      const handlePointerMove = (e) => {
+        if (!dragRef.current.active) return;
+        e.preventDefault();
+        const p = canvasScale(e);
+        setOffset({ x: dragRef.current.ox + (p.x - dragRef.current.sx), y: dragRef.current.oy + (p.y - dragRef.current.sy) });
+      };
+      const handlePointerUp = () => { dragRef.current.active = false; setIsDragging(false); };
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = 900, H = 1200;
+        canvas.width = W; canvas.height = H;
+        const ox = offset.x, oy = offset.y;
+
+        const bg = STORY_BG_COLORS[bgColorIdx];
+        const light = bg === '#FFFFFF' || bg === '#F5C842';
+        const applyTemplate = () => {
+          if      (template === 'city')     drawTplCity(ctx, W, H, run, pace, ox, oy, light, lang);
+          else if (template === 'logo')     drawTplLogo(ctx, W, H, run, pace, ox, oy, light, lang);
+          else if (template === 'line')     drawTplLine(ctx, W, H, run, pace, ox, oy, light, lang);
+          else if (template === 'passport') drawTplPassport(ctx, W, H, run, pace, ox, oy, light, lang);
+          else if (template === 'mapstamp') drawTplMap(ctx, W, H, run, pace, ox, oy, light, lang);
+        };
+        const drawBg = () => {
+          if (bg === 'photo') {
+            ctx.fillStyle = '#E8E8E8'; ctx.fillRect(0,0,W,H);
+            ctx.fillStyle = 'rgba(0,0,0,0.06)';
+            for(let i=0;i<500;i++) ctx.fillRect(Math.random()*W,Math.random()*H,1.5,1.5);
+          } else {
+            ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+            if (bg !== '#FFFFFF') {
+              ctx.fillStyle='rgba(255,255,255,0.025)';
+              for(let i=0;i<600;i++) ctx.fillRect(Math.random()*W,Math.random()*H,1.5,1.5);
+            }
+          }
+        };
+
+        if (!imgUrl) { drawBg(); applyTemplate(); return; }
+
+        const img = new Image();
+        img.onload = () => {
+          const ratio = Math.max(W/img.width, H/img.height);
+          const dw = img.width*ratio, dh = img.height*ratio;
+          ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+          ctx.drawImage(img,(W-dw)/2,(H-dh)/2,dw,dh);
+          if (bg !== 'photo') {
+            ctx.fillStyle = bg === '#FFFFFF' ? 'rgba(255,255,255,0.18)' : bg.replace('#','').length===6
+              ? `rgba(${parseInt(bg.slice(1,3),16)},${parseInt(bg.slice(3,5),16)},${parseInt(bg.slice(5,7),16)},0.22)`
+              : 'rgba(0,0,0,0)';
+            ctx.fillRect(0,0,W,H);
+          }
+          applyTemplate();
+        };
+        img.onerror = () => { drawBg(); applyTemplate(); };
+        img.src = imgUrl;
+      }, [imgUrl, template, bgColorIdx, offset.x, offset.y, run, pace, lang, mapReady]);
+
+      const onSave = () => downloadCanvas(canvasRef.current, `marked_${run.city}_${run.date}.png`);
+
+      // Mini preview component for each template
+      const TemplateThumb = ({ t }) => {
+        const active = template === t.id;
+        const city3 = run.city.slice(0,3).toUpperCase();
+        const km0 = Number(run.km).toFixed(1);
+        return (
+          <button onClick={() => setTemplate(t.id)}
+            className={`shrink-0 rounded-xl border-2 transition overflow-hidden ${
+              active ? 'border-ink scale-105' : 'border-border'
+            }`} style={{ width:'60px', height:'80px' }}>
+            <div className="w-full h-full relative"
+              style={{ background:'linear-gradient(160deg,#1a1a1a,#0a0a0a)' }}>
+              {/* city: bold city + white divider + distance */}
+              {t.id === 'city' && <>
+                <div className="absolute bottom-0 left-0 right-0" style={{ background:'linear-gradient(to top,rgba(0,0,0,.95),transparent)', height:'70%' }}/>
+                <div className="absolute bottom-9 left-1.5 text-white font-black leading-none" style={{ fontSize:'7px' }}>{city3}</div>
+                <div className="absolute bottom-7 left-1.5 right-1.5 h-px" style={{ background:'rgba(255,255,255,0.4)' }}/>
+                <div className="absolute bottom-3.5 left-1.5 text-white font-black" style={{ fontSize:'9px' }}>{km0}</div>
+                <div className="absolute bottom-4 left-1.5 text-right text-white/50" style={{ fontSize:'4px', right:'4px' }}>PACE<br/>TIME</div>
+              </>}
+              {/* logo: left card with stacked stats */}
+              {t.id === 'logo' && <>
+                <div className="absolute inset-2 rounded" style={{ background:'rgba(0,0,0,0.65)', borderLeft:'2px solid rgba(255,255,255,0.45)' }}>
+                  <div className="absolute top-1 left-1.5 text-white font-black" style={{ fontSize:'5px' }}>{city3}</div>
+                  <div className="absolute top-0 left-0 right-0 border-t border-white/10" style={{ top:'12px' }}/>
+                  <div className="absolute text-white/50" style={{ fontSize:'3px', top:'15px', left:'5px' }}>Distance</div>
+                  <div className="absolute text-white font-bold" style={{ fontSize:'6px', top:'20px', left:'5px' }}>{km0}km</div>
+                  <div className="absolute text-white/50" style={{ fontSize:'3px', top:'30px', left:'5px' }}>Pace</div>
+                  <div className="absolute text-white font-bold" style={{ fontSize:'5px', top:'35px', left:'5px' }}>5:30</div>
+                </div>
+              </>}
+              {/* line: right-aligned big numbers */}
+              {t.id === 'line' && <>
+                <div className="absolute top-2 left-2 text-white font-bold" style={{ fontSize:'4px' }}>MARKED.</div>
+                <div className="absolute right-1.5 text-white/60 font-bold" style={{ fontSize:'4px', top:'30px' }}>{city3}</div>
+                <div className="absolute right-1.5 border-t" style={{ top:'37px', left:'30%', borderColor:'rgba(255,255,255,0.35)' }}/>
+                <div className="absolute right-1.5 text-white font-black" style={{ fontSize:'11px', top:'38px' }}>{km0}</div>
+                <div className="absolute right-1.5 text-white font-bold" style={{ fontSize:'7px', top:'52px' }}>5:30</div>
+                <div className="absolute right-1.5 text-white font-bold" style={{ fontSize:'7px', top:'62px' }}>29</div>
+              </>}
+              {/* passport: card */}
+              {t.id === 'passport' && <>
+                <div className="absolute inset-2 rounded" style={{ background:'rgba(8,8,8,0.94)', border:'1px solid rgba(255,255,255,0.4)' }}>
+                  <div className="absolute top-0 left-0 right-0 h-1 rounded-t" style={{ background:'rgba(255,255,255,0.75)' }}/>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
+                    <div className="text-white font-black" style={{ fontSize:'5px' }}>{city3}</div>
+                    <div className="text-white/40" style={{ fontSize:'3px' }}>────</div>
+                    <div className="font-bold text-white" style={{ fontSize:'5px' }}>{km0}</div>
+                    <div className="text-white/40" style={{ fontSize:'2.5px' }}>ENTRY STAMP</div>
+                  </div>
+                </div>
+              </>}
+              {/* mapstamp: country shape */}
+              {t.id === 'mapstamp' && <>
+                <div className="absolute inset-0 flex flex-col items-end justify-end" style={{ padding:'4px' }}>
+                  <div className="text-white font-black leading-none" style={{ fontSize:'5px', opacity:0.55 }}>MAP</div>
+                  <div className="text-white font-black" style={{ fontSize:'6px' }}>{city3}</div>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center opacity-60">
+                  <svg viewBox="0 0 40 40" width="36" height="36">
+                    <rect x="5" y="8" width="30" height="24" rx="2" fill="none" stroke="white" strokeWidth="1.5"/>
+                    <path d="M5 16 Q15 12 20 18 Q26 24 35 18" fill="none" stroke="white" strokeWidth="1" strokeDasharray="2,2" opacity="0.6"/>
+                    <circle cx="20" cy="20" r="2" fill="white" opacity="0.8"/>
+                  </svg>
+                </div>
+              </>}
+            </div>
+          </button>
+        );
+      };
+
+      return (
+        <PhoneFrame>
+          <TopBar title={run.city} onBack={() => navigate('record')} />
+          <div className="fade-up">
+            {/* Canvas — drag to reposition text */}
+            <div className="relative select-none">
+              <canvas
+                ref={canvasRef}
+                className={`w-full h-auto block touch-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerLeave={handlePointerUp}
+                onTouchStart={handlePointerDown}
+                onTouchMove={handlePointerMove}
+                onTouchEnd={handlePointerUp}
+              />
+              {/* Photo button */}
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="absolute top-3 right-3 bg-black/55 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/20"
+              >
+                <Icon.Photo width="13" height="13" /> 사진
+              </button>
+              {/* Drag hint */}
+              {!isDragging && offset.x === 0 && offset.y === 0 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
+                  <span className="bg-black/50 text-white/70 text-[10px] px-2.5 py-1 rounded-full">드래그로 위치 조정</span>
+                </div>
+              )}
+              {/* Reset offset button */}
+              {(offset.x !== 0 || offset.y !== 0) && (
+                <button
+                  onClick={() => setOffset({ x:0, y:0 })}
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/55 text-white text-[11px] px-3 py-1 rounded-full border border-white/20"
+                >
+                  위치 초기화
+                </button>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden-file" />
+
+            <div className="px-5 pt-4 pb-24 space-y-4">
+              {/* Background color swatches */}
+              <div>
+                <p className="text-xs text-muted font-medium tracking-wider uppercase mb-2">배경</p>
+                <div className="flex gap-2 flex-wrap">
+                  {STORY_BG_COLORS.map((col, i) => (
+                    <button key={i} onClick={() => setBgColorIdx(i)}
+                      className={`w-8 h-8 rounded-full border-2 transition ${i === bgColorIdx ? 'border-ink scale-110' : 'border-transparent'}`}
+                      style={{
+                        background: col === 'photo' ? 'linear-gradient(135deg,#ccc 50%,#888 50%)' : col,
+                        boxShadow: i === bgColorIdx ? '0 0 0 1px #fff inset' : 'none'
+                      }}
+                      title={col === 'photo' ? '사진만' : col}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Language toggle */}
+              <div className="flex items-center gap-2 justify-end">
+                <span className="text-xs text-muted">언어</span>
+                <button onClick={() => setLang('ko')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition ${lang==='ko' ? 'bg-ink text-white border-ink' : 'bg-white text-muted border-border'}`}>KO</button>
+                <button onClick={() => setLang('en')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition ${lang==='en' ? 'bg-ink text-white border-ink' : 'bg-white text-muted border-border'}`}>EN</button>
+              </div>
+
+              {/* Template selector */}
+              <div>
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {STAMP_TEMPLATES.map(t => <TemplateThumb key={t.id} t={t} />)}
+                </div>
+              </div>
+
+              <Button variant="coral" size="lg" onClick={onSave} className="w-full">저장하기 →</Button>
+            </div>
+          </div>
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ─── Text color helpers ───────────────────────────────────────────────────
+    function _tc(l) { return l ? '#111111' : '#ffffff'; }
+    function _ta(l, a) { return l ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`; }
+    function L(ko, en, lang) { return lang === 'en' ? en : ko; }
+
+    // ─── Shared stat data ─────────────────────────────────────────────────────
+    function statsArr(run, pace, lang) {
+      return [
+        { lbl: L('거리','DIST', lang),  val: `${Number(run.km).toFixed(1)}`, unit: 'KM'  },
+        { lbl: L('페이스','PACE', lang), val: pace ? pace.label : '—',       unit: L('/km','/km',lang) },
+        { lbl: L('시간','TIME', lang),   val: `${run.minutes}`,              unit: L('분','MIN',lang) },
+      ];
+    }
+
+    // T1: Editorial — city hero, bottom left, horizontal stats
+    function drawTplCity(ctx, W, H, run, pace, ox=0, oy=0, light=false, lang='ko') {
+      ctx.save(); ctx.translate(ox,oy);
+      const PAD=72;
+      const city=cityL(run.city,lang);
+      const cfs=city.length>8?72:city.length>5?90:108;
+
+      // country · date  (y=H-272)
+      ctx.fillStyle=_ta(light,0.45); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText(`${countL(run.country,lang).toUpperCase()}`, PAD, H-272);
+      ctx.textAlign='right';
+      ctx.fillText(fmtDate(run.date), W-PAD, H-272);
+
+      // city name  (baseline y=H-164)
+      ctx.fillStyle=_tc(light); ctx.font=`900 ${cfs}px "Noto Sans KR",sans-serif`;
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText(city, PAD, H-164);
+
+      // full-width divider  (y=H-136)
+      ctx.strokeStyle=_ta(light,0.18); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(PAD,H-136); ctx.lineTo(W-PAD,H-136); ctx.stroke();
+
+      // 3 stats — equal columns
+      const colW=Math.round((W-2*PAD)/3);
+      [0,1,2].forEach(i => {
+        const x=PAD+colW*i;
+        const lbl=[L('거리','DISTANCE',lang),L('페이스','PACE',lang),L('시간','TIME',lang)][i];
+        const val=[`${Number(run.km).toFixed(1)}`,pace?pace.label:'—',`${run.minutes}`][i];
+        const unit=['km','/km',L('분','min',lang)][i];
+        ctx.fillStyle=_ta(light,0.40); ctx.font='400 12px "Noto Sans KR",sans-serif';
+        ctx.textAlign='left'; ctx.fillText(lbl.toUpperCase(), x, H-108);
+        ctx.fillStyle=_tc(light); ctx.font='700 40px "Noto Sans KR",sans-serif';
+        ctx.fillText(val, x, H-60);
+        ctx.fillStyle=_ta(light,0.40); ctx.font='400 12px "Noto Sans KR",sans-serif';
+        ctx.fillText(unit, x, H-40);
+      });
+
+      // MARKED. watermark  (y=H-14)
+      ctx.fillStyle=_ta(light,0.20); ctx.font='400 11px "Noto Sans KR",sans-serif';
+      ctx.textAlign='right';
+      ctx.fillText('MARKED.', W-PAD, H-14);
+      ctx.restore();
+    }
+
+    // T2: Stacked — floating text block top-left, label→value×3
+    function drawTplLogo(ctx, W, H, run, pace, ox=0, oy=0, light=false, lang='ko') {
+      ctx.save(); ctx.translate(ox,oy);
+      const PAD=72;
+
+      // MARKED.  (y=68)
+      ctx.fillStyle=_tc(light); ctx.font='700 16px "Noto Sans KR",sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText('MARKED.', PAD, 68);
+
+      // thin rule  (y=84)
+      ctx.strokeStyle=_ta(light,0.20); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(PAD,84); ctx.lineTo(PAD+360,84); ctx.stroke();
+
+      // Distance label→value  (label y=120, value y=170)
+      ctx.fillStyle=_ta(light,0.45); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(L('거리','Distance',lang), PAD, 120);
+      ctx.fillStyle=_tc(light); ctx.font='700 52px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${Number(run.km).toFixed(1)} km`, PAD, 170);
+
+      // Pace label→value  (label y=208, value y=248)
+      ctx.fillStyle=_ta(light,0.45); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(L('페이스','Pace',lang), PAD, 208);
+      ctx.fillStyle=_tc(light); ctx.font='700 38px "Noto Sans KR",sans-serif';
+      ctx.fillText(pace?`${pace.label}/km`:'—', PAD, 248);
+
+      // Time label→value  (label y=282, value y=322)
+      ctx.fillStyle=_ta(light,0.45); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(L('시간','Time',lang), PAD, 282);
+      ctx.fillStyle=_tc(light); ctx.font='700 38px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${run.minutes}${L('분','m',lang)}`, PAD, 322);
+
+      // thin rule  (y=348)
+      ctx.strokeStyle=_ta(light,0.20); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(PAD,348); ctx.lineTo(PAD+360,348); ctx.stroke();
+
+      // city · country · date  (y=372)
+      ctx.fillStyle=_ta(light,0.45); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${cityL(run.city,lang)}  ·  ${countL(run.country,lang)}  ·  ${fmtDate(run.date)}`, PAD, 372);
+      ctx.restore();
+    }
+
+    // T3: Data — right-aligned big numbers, MARKED top-left
+    function drawTplLine(ctx, W, H, run, pace, ox=0, oy=0, light=false, lang='ko') {
+      ctx.save(); ctx.translate(ox,oy);
+      const PAD=72;
+
+      // top-left: MARKED. + date
+      ctx.fillStyle=_tc(light); ctx.font='700 16px "Noto Sans KR",sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText('MARKED.', PAD, 64);
+      ctx.fillStyle=_ta(light,0.38); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(fmtDate(run.date), PAD, 86);
+
+      // city — right, medium  (y=H-310)
+      const city=cityL(run.city,lang).toUpperCase();
+      const cfs=city.length>8?38:city.length>5?46:56;
+      ctx.fillStyle=_ta(light,0.55); ctx.font=`700 ${cfs}px "Noto Sans KR",sans-serif`;
+      ctx.textAlign='right'; ctx.fillText(city, W-PAD, H-310);
+
+      // divider  (y=H-278)
+      ctx.strokeStyle=_ta(light,0.22); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(W*0.40,H-278); ctx.lineTo(W-PAD,H-278); ctx.stroke();
+
+      // distance — biggest  (y=H-174, font 76px)
+      ctx.fillStyle=_tc(light); ctx.font='700 76px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${Number(run.km).toFixed(1)} km`, W-PAD, H-174);
+
+      // pace  (y=H-110, font 44px)
+      ctx.fillStyle=_tc(light); ctx.font='700 44px "Noto Sans KR",sans-serif';
+      ctx.fillText(pace?`${pace.label}/km`:'—', W-PAD, H-110);
+
+      // time  (y=H-52, font 44px)
+      ctx.fillStyle=_tc(light); ctx.font='700 44px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${run.minutes}${L('분','m',lang)}`, W-PAD, H-52);
+
+      // country flag  (y=H-16)
+      ctx.fillStyle=_ta(light,0.35); ctx.font='400 13px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${flagOf(run.country)}  ${countL(run.country,lang)}`, W-PAD, H-16);
+      ctx.restore();
+    }
+
+    // T4: Card — centered passport card, B&W
+    function drawTplPassport(ctx, W, H, run, pace, ox=0, oy=0, light=false, lang='ko') {
+      ctx.save(); ctx.translate(ox,oy);
+      const SW=660, SH=500, R=16;
+      const sx=(W-SW)/2, sy=(H-SH)/2;
+
+      // card fill
+      ctx.fillStyle=light?'rgba(252,250,247,0.97)':'rgba(6,6,6,0.95)';
+      ctx.beginPath(); ctx.roundRect(sx,sy,SW,SH,R); ctx.fill();
+
+      // border
+      ctx.strokeStyle=light?'rgba(0,0,0,0.55)':'rgba(255,255,255,0.55)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(sx,sy,SW,SH,R); ctx.stroke();
+
+      // header: MARKED. left, date right  (y=sy+40)
+      ctx.fillStyle=_ta(light,0.42); ctx.font='500 12px "Noto Sans KR",sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText('MARKED. RUNNING RECORD', sx+28, sy+40);
+      ctx.textAlign='right';
+      ctx.fillText(fmtDate(run.date), sx+SW-28, sy+40);
+
+      // divider  (y=sy+54)
+      ctx.strokeStyle=_ta(light,0.10); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx+28,sy+54); ctx.lineTo(sx+SW-28,sy+54); ctx.stroke();
+
+      // ghost country code  (center of card)
+      ctx.fillStyle=_ta(light,0.05); ctx.font=`900 150px "Noto Sans KR",sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(codeOf(run.country), sx+SW/2, sy+SH/2+12);
+
+      // city name  (baseline y=sy+196)
+      const city=cityL(run.city,lang);
+      const cfs=city.length>8?44:city.length>5?56:70;
+      ctx.fillStyle=_tc(light); ctx.font=`900 ${cfs}px "Noto Sans KR",sans-serif`;
+      ctx.textBaseline='alphabetic';
+      ctx.fillText(city, sx+SW/2, sy+196);
+
+      // flag + country  (y=sy+228)
+      ctx.fillStyle=_ta(light,0.50); ctx.font='400 17px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${flagOf(run.country)}  ${countL(run.country,lang)}`, sx+SW/2, sy+228);
+
+      // divider  (y=sy+248)
+      ctx.strokeStyle=_ta(light,0.10); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx+36,sy+248); ctx.lineTo(sx+SW-36,sy+248); ctx.stroke();
+
+      // 3 stats: label(sy+278) / value(sy+316) / unit(sy+336)
+      [0,1,2].forEach(i => {
+        const x=sx+[SW*0.17,SW*0.50,SW*0.83][i];
+        const {lbl,val,unit}=statsArr(run,pace,lang)[i];
+        ctx.fillStyle=_ta(light,0.38); ctx.font='400 12px "Noto Sans KR",sans-serif';
+        ctx.textBaseline='alphabetic'; ctx.fillText(lbl.toUpperCase(), x, sy+278);
+        ctx.fillStyle=_tc(light); ctx.font='700 32px "Noto Sans KR",sans-serif';
+        ctx.fillText(val, x, sy+316);
+        ctx.fillStyle=_ta(light,0.38); ctx.font='400 12px "Noto Sans KR",sans-serif';
+        ctx.fillText(unit, x, sy+336);
+      });
+
+      // divider  (y=sy+354)
+      ctx.strokeStyle=_ta(light,0.10); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx+36,sy+354); ctx.lineTo(sx+SW-36,sy+354); ctx.stroke();
+
+      // date  (y=sy+386)
+      ctx.fillStyle=_ta(light,0.40); ctx.font='400 14px "Noto Sans KR",sans-serif';
+      ctx.fillText(fmtDate(run.date), sx+SW/2, sy+386);
+
+      // entry stamp footer  (y=sy+SH-24=sy+476)
+      ctx.fillStyle=_ta(light,0.28); ctx.font='500 11px "Noto Sans KR",sans-serif';
+      ctx.fillText('· · ·  ENTRY STAMP  · · ·', sx+SW/2, sy+SH-24);
+      ctx.restore();
+    }
+
+    // T5: Map — country silhouette on canvas using D3-geo
+    // T5: Map — country silhouette as bottom-strip overlay (얹히는 레이아웃)
+    function drawTplMap(ctx, W, H, run, pace, ox=0, oy=0, light=false, lang='ko') {
+      ctx.save(); ctx.translate(ox, oy);
+
+      // ── silhouette only — right column, fully opaque ──────────────────
+      const PAD = 72;
+      const SIL_X0 = W * 0.52, SIL_X1 = W - PAD;
+      const SIL_Y0 = H * 0.54, SIL_Y1 = H * 0.88;
+
+      if (_worldAtlas && window.d3 && window.topojson) {
+        const d3 = window.d3, tp = window.topojson;
+        const isoNum = COUNTRY_ISO_NUM[normalizeCountry(run.country)];
+        const countries = tp.feature(_worldAtlas, _worldAtlas.objects.countries);
+        const feature = isoNum ? countries.features.find(f => Number(f.id) === isoNum) : null;
+
+        if (feature) {
+          // For Korea: extend projection bounds to include Dokdo (131.86°E, 37.24°N)
+          const KR_ISO = 410;
+          const DOKDO_COORD = [131.8644, 37.2425];
+          const fitTarget = isoNum === KR_ISO
+            ? { type:'FeatureCollection', features:[feature,
+                { type:'Feature', geometry:{ type:'Point', coordinates: DOKDO_COORD } }] }
+            : feature;
+
+          const proj = d3.geoMercator()
+            .fitExtent([[SIL_X0, SIL_Y0],[SIL_X1, SIL_Y1]], fitTarget);
+          const pathGen = d3.geoPath().projection(proj).context(ctx);
+
+          ctx.fillStyle = _ta(light, 0.5);
+          ctx.beginPath(); pathGen(feature); ctx.fill();
+          ctx.strokeStyle = _ta(light, 0.5); ctx.lineWidth = 1;
+          ctx.beginPath(); pathGen(feature); ctx.stroke();
+
+          // Draw Dokdo as a small visible dot
+          if (isoNum === KR_ISO) {
+            const [dx, dy] = proj(DOKDO_COORD);
+            const r = Math.max(3, Math.min(SIL_X1 - SIL_X0, SIL_Y1 - SIL_Y0) * 0.025);
+            ctx.beginPath(); ctx.arc(dx, dy, r, 0, Math.PI * 2);
+            ctx.fillStyle = _ta(light, 0.5); ctx.fill();
+          }
+        } else {
+          // Country not found — draw a simple circle outline placeholder
+          const cx=(SIL_X0+SIL_X1)/2, cy=(SIL_Y0+SIL_Y1)/2, r=Math.min((SIL_X1-SIL_X0),(SIL_Y1-SIL_Y0))/2;
+          ctx.strokeStyle=_tc(light); ctx.lineWidth=2;
+          ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+          ctx.fillStyle=_ta(light,0.12); ctx.fill();
+        }
+      } else {
+        // Atlas loading — show "..." placeholder
+        ctx.fillStyle=_ta(light,0.50); ctx.font='400 18px "Noto Sans KR",sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('…', (SIL_X0+SIL_X1)/2, (SIL_Y0+SIL_Y1)/2);
+      }
+
+      // ── left text column ──────────────────────────────────────────────
+      const TY = H * 0.595; // baseline reference
+
+      // MARKED. + date
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillStyle=_ta(light,0.45); ctx.font='500 13px "Noto Sans KR",sans-serif';
+      ctx.fillText('MARKED.', PAD, TY);
+      ctx.textAlign='right';
+      ctx.fillText(fmtDate(run.date), W*0.50 - 16, TY);
+
+      // thin rule
+      ctx.strokeStyle=_ta(light,0.22); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(PAD, TY+14); ctx.lineTo(W*0.50-16, TY+14); ctx.stroke();
+
+      // city name
+      const city=cityL(run.city,lang);
+      const cfs=city.length>8?58:city.length>5?72:88;
+      ctx.fillStyle=_tc(light); ctx.font=`900 ${cfs}px "Noto Sans KR",sans-serif`;
+      ctx.textAlign='left'; ctx.fillText(city, PAD, TY+100);
+
+      // country
+      ctx.fillStyle=_ta(light,0.50); ctx.font='400 14px "Noto Sans KR",sans-serif';
+      ctx.fillText(`${flagOf(run.country)}  ${countL(run.country,lang)}`, PAD, TY+128);
+
+      // thin rule
+      ctx.strokeStyle=_ta(light,0.22); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(PAD, TY+148); ctx.lineTo(W*0.50-16, TY+148); ctx.stroke();
+
+      // 3 stats stacked vertically (left column only)
+      [
+        [L('거리','DIST',lang), `${Number(run.km).toFixed(1)} km`],
+        [L('페이스','PACE',lang), pace?`${pace.label}/km`:'—'],
+        [L('시간','TIME',lang), `${run.minutes}${L('분','m',lang)}`],
+      ].forEach(([lbl,val],i) => {
+        const y = TY+180+i*62;
+        ctx.fillStyle=_ta(light,0.40); ctx.font='400 11px "Noto Sans KR",sans-serif';
+        ctx.textAlign='left'; ctx.fillText(lbl.toUpperCase(), PAD, y);
+        ctx.fillStyle=_tc(light); ctx.font='700 28px "Noto Sans KR",sans-serif';
+        ctx.fillText(val, PAD, y+30);
+      });
+
+      ctx.restore();
+    }
+
+    // ========================================
+    // drawColorLiner (PRESERVED — Noto Sans KR)
+    // ========================================
+    function drawColorLiner(ctx, W, H, run, pace, palette) {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, palette.from);
+      g.addColorStop(1, palette.to);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      for (let i = 0; i < 600; i++) {
+        ctx.fillRect(Math.random()*W, Math.random()*H, 1.2, 1.2);
+      }
+
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '500 24px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('MARKED', 80, 90);
+
+      ctx.font = '400 48px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(flagOf(run.country), W - 80, 100);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.font = `900 ${run.city.length > 5 ? 200 : 240}px "Noto Sans KR", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(run.city, W/2, H/2);
+
+      const stripY = H - 260;
+
+      ctx.strokeStyle = palette.accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(80, stripY); ctx.lineTo(W - 80, stripY); ctx.stroke();
+
+      ctx.fillStyle = palette.accent;
+      ctx.font = '900 88px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      const cityText = run.city.length > 10 ? run.city.slice(0,10) : run.city;
+      ctx.fillText(cityText, 80, stripY + 100);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.font = '600 26px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(run.country, W - 80, stripY + 100);
+
+      const paceStr = pace ? pace.label : '—';
+      const statsLine = `${Number(run.km).toFixed(1)} KM  ·  ${paceStr} /km  ·  ${run.minutes}m  ·  ${fmtDate(run.date)}`;
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.font = '500 26px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(statsLine, 80, stripY + 148);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(80, stripY + 174); ctx.lineTo(W - 80, stripY + 174); ctx.stroke();
+    }
+
+    // ========================================
+    // drawColorCard (PRESERVED — Noto Sans KR)
+    // ========================================
+    function drawColorCard(ctx, W, H, run, pace, palette) {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, palette.from);
+      g.addColorStop(1, palette.to);
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,W,H);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      for (let i = 0; i < 700; i++) {
+        const x = Math.random() * W, y = Math.random() * H;
+        ctx.fillRect(x, y, 1.2, 1.2);
+      }
+
+      // Top: MARKED wordmark (centered)
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '500 22px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('M A R K E D', W/2, 110);
+
+      // Center: big city
+      ctx.fillStyle = palette.accent;
+      ctx.font = '700 120px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'center';
+      const city = run.city.length > 9 ? run.city.slice(0,9) : run.city;
+      ctx.fillText(city, W/2, H/2 - 80);
+
+      // Country (letter-spaced)
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = '500 24px "Noto Sans KR", sans-serif';
+      const spaced = run.country.split('').join('  ');
+      ctx.fillText(spaced, W/2, H/2 - 30);
+
+      // Dotted divider
+      const cy = H/2 + 30;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      const dots = 30;
+      for (let i = 0; i < dots; i++) {
+        const x = W/2 - 220 + (i * (440 / (dots - 1)));
+        ctx.beginPath(); ctx.arc(x, cy, 1.6, 0, Math.PI*2); ctx.fill();
+      }
+
+      // 3 stat columns
+      const baseY = H/2 + 100;
+      const cols = [
+        { label: '거리',   value: `${Number(run.km).toFixed(1)} km` },
+        { label: '페이스', value: pace ? pace.label : '—' },
+        { label: '시간',   value: `${run.minutes}분` },
+      ];
+      const colW = W / 4;
+      cols.forEach((c, i) => {
+        const x = W/2 + (i - 1) * colW;
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.font = '500 22px "Noto Sans KR", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(c.label, x, baseY);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '700 44px "Noto Sans KR", sans-serif';
+        ctx.fillText(c.value, x, baseY + 60);
+      });
+
+      // Bottom: date + flag
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '600 22px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtDate(run.date), 60, H - 60);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '500 20px "Noto Sans KR", sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${flagOf(run.country)}  ${run.country}`, W - 60, H - 60);
+    }
+
+    // ========================================
+    // Page: History
+    // ========================================
+    function HistoryPage({ runs, onDelete }) {
+      const { navigate } = useRouter();
+
+      const grouped = useMemo(() => {
+        const map = new Map();
+        runs.forEach(r => {
+          const key = r.country || '기타';
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(r);
+        });
+        for (const [, arr] of map) arr.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+        return Array.from(map.entries()).sort((a,b) => {
+          const ad = a[1][0]?.date || ''; const bd = b[1][0]?.date || '';
+          return bd.localeCompare(ad);
+        });
+      }, [runs]);
+
+      return (
+        <PhoneFrame>
+          <TopBar
+            title="히스토리"
+            onBack={() => navigate('home')}
+            right={<Badge>{runs.length}</Badge>}
+          />
+
+          <div className="px-6 pt-5">
+            {runs.length === 0 ? (
+              <Card className="p-8 text-center fade-up">
+                <p className="text-sm text-muted">아직 기록이 없어요. 첫 러닝을 기록해보세요.</p>
+                <Button variant="coral" className="mt-5" onClick={() => navigate('record')}>새 기록 만들기</Button>
+              </Card>
+            ) : (
+              <div className="space-y-7 fade-up">
+                {grouped.map(([country, list]) => (
+                  <section key={country}>
+                    <div className="flex items-baseline justify-between mb-3">
+                      <h3 className="text-2xl text-ink flex items-center gap-2 font-bold">
+                        <span className="text-xl">{flagOf(country)}</span>
+                        <span>{country}</span>
+                      </h3>
+                      <span className="text-xs text-muted">{list.length}회</span>
+                    </div>
+                    <div className="space-y-2">
+                      {list.map(r => {
+                        const pace = calcPace(r.km, r.minutes);
+                        return (
+                          <Card key={r.id} className="p-3.5">
+                            <div className="flex items-center gap-3">
+                              <button onClick={() => navigate('stamp', r)} className="flex-1 text-left flex items-center gap-3 min-w-0">
+                                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                                  style={{ background: tileFor(r.id).bg }}>
+                                  <span className="font-black text-white" style={{fontSize:'11px',letterSpacing:'0.08em'}}>{codeOf(r.country)}</span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-medium text-sm text-ink truncate">{r.city}</div>
+                                  <div className="flex items-center gap-2 text-[11px] text-muted mt-0.5">
+                                    <span className="text-ink font-medium">{Number(r.km).toFixed(1)} km</span>
+                                    <span>·</span>
+                                    <span>{pace ? pace.label : '—'}</span>
+                                    <span>·</span>
+                                    <span>{fmtDate(r.date)}</span>
+                                  </div>
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => { if (confirm('이 기록을 삭제할까요?')) onDelete(r.id); }}
+                                className="w-9 h-9 rounded-lg flex items-center justify-center text-muted hover:text-coral transition shrink-0"
+                                aria-label="삭제"
+                              >
+                                <Icon.Trash width="16" height="16"/>
+                              </button>
+                            </div>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Page: Profile
+    // ========================================
+    function ProfilePage({ runs }) {
+      const { navigate } = useRouter();
+      const { user, logout } = useAuthCtx();
+
+      const stats = useMemo(() => {
+        const countries = new Set(runs.map(r => r.country).filter(Boolean));
+        const cities = new Set(runs.map(r => `${r.country}/${r.city}`).filter(Boolean));
+        const totalKm = runs.reduce((s,r) => s + Number(r.km || 0), 0);
+        return { countries: countries.size, cities: cities.size, totalKm, count: runs.length };
+      }, [runs]);
+
+      const handleLogout = () => {
+        if (confirm('로그아웃 하시겠어요?')) {
+          logout();
+          navigate('home');
+        }
+      };
+
+      const initial = (user?.name || user?.email || 'U').slice(0,1).toUpperCase();
+
+      const recent = useMemo(() => {
+        return [...runs].sort((a,b) => (b.date || '').localeCompare(a.date || '')).slice(0, 6);
+      }, [runs]);
+
+      return (
+        <PhoneFrame>
+          <TopBar
+            title="프로필"
+            onBack={() => navigate('home')}
+            right={
+              <button
+                onClick={handleLogout}
+                className="w-8 h-8 flex items-center justify-center text-ink hover:text-coral transition"
+                aria-label="로그아웃"
+              >
+                <Icon.Logout width="20" height="20"/>
+              </button>
+            }
+          />
+
+          {/* Identity block */}
+          <div className="px-6 pt-7 fade-up flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-ink text-white flex items-center justify-center text-2xl shrink-0 font-bold">
+              {initial}
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-2xl text-ink truncate font-bold">{user?.name}</h2>
+              <p className="text-xs text-muted mt-0.5 truncate">{user?.email}</p>
+            </div>
+          </div>
+
+          {/* 4-stat grid */}
+          <div className="px-6 mt-6 fade-up">
+            <div className="grid grid-cols-4 bg-white border border-border rounded-2xl py-5">
+              <StatBig value={stats.countries} label="나라" />
+              <StatBig value={stats.cities} label="도시" />
+              <StatBig value={stats.totalKm.toFixed(0)} label="km" />
+              <StatBig value={stats.count} label="횟수" />
+            </div>
+          </div>
+
+          {/* Recent runs */}
+          <div className="px-6 mt-7 fade-up">
+            <h3 className="text-xs text-muted uppercase tracking-widest font-medium mb-3">내 러닝 기록</h3>
+            {recent.length === 0 ? (
+              <Card className="p-6 text-center">
+                <p className="text-sm text-muted">아직 기록이 없어요.</p>
+              </Card>
+            ) : (
+              <div className="space-y-2.5">
+                {recent.map(r => <RunCard key={r.id} run={r} onOpen={() => navigate('stamp', r)} />)}
+              </div>
+            )}
+          </div>
+
+          {/* Logout */}
+          <div className="px-6 mt-8 fade-up">
+            <Button variant="coral" size="lg" onClick={handleLogout} className="w-full">
+              로그아웃
+            </Button>
+            <p className="text-[11px] text-center text-muted mt-3">Marked v1.0</p>
+          </div>
+
+          <BottomNav />
+        </PhoneFrame>
+      );
+    }
+
+    // ========================================
+    // Page: Explore — Running courses
+    // ========================================
+    function CourseForm({ onAdd, onClose }) {
+      const [form, setForm] = useState({
+        city: '', country: '', name: '', distance: '', difficulty: '초급',
+        description: '', mapUrl: '', date: todayIso()
+      });
+      const [imageFile, setImageFile] = useState(null);
+      const [imagePreview, setImagePreview] = useState(null);
+      const imgRef = useRef(null);
+      const set = (k) => (e) => setForm(prev => ({ ...prev, [k]: e.target.value }));
+      const valid = form.city && form.name;
+
+      const submit = (e) => {
+        e.preventDefault();
+        if (!valid) return;
+        onAdd({ ...form, imageFile });
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+          <div className="relative w-full max-w-sm bg-white rounded-t-3xl p-6 pb-10 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg text-ink font-bold">코스 등록</h2>
+              <button onClick={onClose} className="text-muted text-2xl leading-none">×</button>
+            </div>
+            <form onSubmit={submit} className="space-y-3">
+              {/* Photo upload */}
+              <div>
+                <label className="text-xs text-muted mb-1 block">사진 (선택)</label>
+                {imagePreview
+                  ? <div className="relative">
+                      <img src={imagePreview} className="w-full h-40 object-cover rounded-xl" alt="preview" />
+                      <button type="button" onClick={()=>{setImageFile(null);setImagePreview(null);}}
+                        className="absolute top-2 right-2 bg-black/60 text-white w-7 h-7 rounded-full text-xl leading-none flex items-center justify-center">×</button>
+                    </div>
+                  : <button type="button" onClick={()=>imgRef.current?.click()}
+                      className="w-full h-28 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-muted hover:border-coral transition">
+                      <Icon.Photo width="24" height="24" />
+                      <span className="text-xs">사진 추가</span>
+                    </button>
+                }
+                <input ref={imgRef} type="file" accept="image/*" className="hidden-file"
+                  onChange={e => {
+                    const f = e.target.files[0];
+                    if (!f) return;
+                    setImageFile(f);
+                    const reader = new FileReader();
+                    reader.onload = ev => setImagePreview(ev.target.result);
+                    reader.readAsDataURL(f);
+                  }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted mb-1 block">도시 *</label>
+                  <input value={form.city} onChange={set('city')} placeholder="서울"
+                    className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted mb-1 block">나라</label>
+                  <input value={form.country} onChange={set('country')} placeholder="한국"
+                    className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted mb-1 block">코스명 *</label>
+                <input value={form.name} onChange={set('name')} placeholder="한강 러닝코스"
+                  className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted mb-1 block">거리</label>
+                  <input value={form.distance} onChange={set('distance')} placeholder="10km"
+                    className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted mb-1 block">난이도</label>
+                  <select value={form.difficulty} onChange={set('difficulty')}
+                    className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink">
+                    <option>초급</option><option>중급</option><option>고급</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted mb-1 block">설명</label>
+                <textarea value={form.description} onChange={set('description')} placeholder="코스 특징, 추천 시간 등"
+                  className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink min-h-[72px] resize-none" />
+              </div>
+              <div>
+                <label className="text-xs text-muted mb-1 block">지도 링크 (Google Maps URL)</label>
+                <input value={form.mapUrl} onChange={set('mapUrl')} placeholder="https://maps.google.com/..."
+                  className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-sm text-ink outline-none focus:border-ink" />
+              </div>
+              <button type="submit" disabled={!valid}
+                className="w-full py-3.5 rounded-full bg-coral text-white text-sm font-bold disabled:opacity-40">
+                등록하기 →
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function CourseDetail({ course, onClose }) {
+      const [cityRuns, setCityRuns] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        setLoading(true);
+        api.get(`/api/community-runs?city=${encodeURIComponent(course.city)}`)
+          .then(data => { setCityRuns(data); setLoading(false); })
+          .catch(() => setLoading(false));
+      }, [course.city]);
+
+      const imgSrc = course.imageUrl || course.image_url || '';
+      const mapUrl = course.mapUrl || course.map_url || '';
+
+      const fmtPace = (km, min) => {
+        if (!km || !min) return '—';
+        const secPerKm = (Number(min) * 60) / Number(km);
+        return `${Math.floor(secPerKm/60)}:${String(Math.round(secPerKm%60)).padStart(2,'0')}`;
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col bg-bg">
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 h-14 border-b border-border shrink-0">
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-ink hover:text-muted transition">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-ink text-sm leading-tight truncate">{course.name}</p>
+              <p className="text-[11px] text-muted">{flagOf(course.country)} {course.city} · {course.country}</p>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pb-8">
+            {/* Course image */}
+            {imgSrc && (
+              <img src={imgSrc} alt={course.name} className="w-full h-52 object-cover" onError={e => { e.target.style.display='none'; }}/>
+            )}
+
+            {/* Course info */}
+            <div className="px-5 pt-5 pb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium ${
+                  course.difficulty === '초급' ? 'bg-green-50 text-green-700' :
+                  course.difficulty === '중급' ? 'bg-amber-50 text-amber-700' :
+                  'bg-red-50 text-red-700'
+                }`}>{course.difficulty}</span>
+                {course.distance && <span className="text-sm font-bold text-coral">{course.distance} km</span>}
+              </div>
+              <h2 className="text-xl font-black text-ink leading-snug mb-2">{course.name}</h2>
+              {course.description && <p className="text-sm text-muted leading-relaxed">{course.description}</p>}
+              {course.user_name && course.user_name !== '익명' && (
+                <p className="text-xs text-muted mt-2">등록: {course.user_name}</p>
+              )}
+              {mapUrl && (
+                <button onClick={() => window.open(mapUrl, '_blank')}
+                  className="mt-4 w-full py-2.5 rounded-xl text-sm font-medium bg-ink text-white flex items-center justify-center gap-1.5">
+                  🗺️ 구글맵에서 보기
+                </button>
+              )}
+            </div>
+
+            <div className="border-t border-border mx-5"/>
+
+            {/* City runners */}
+            <div className="px-5 pt-5">
+              <h3 className="font-black text-ink mb-0.5" style={{fontSize:'18px'}}>{course.city} 러너들</h3>
+              <p className="text-[11px] text-muted uppercase tracking-widest mb-4">이 도시에서 달린 기록</p>
+
+              {loading ? (
+                <div className="text-sm text-muted text-center py-8">불러오는 중...</div>
+              ) : cityRuns.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-sm text-muted">아직 이 도시의 러닝 기록이 없어요.</p>
+                  <p className="text-xs text-muted mt-1">첫 번째 러너가 되어보세요!</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {cityRuns.map(r => (
+                    <div key={r.id} className="bg-white rounded-2xl p-4 border border-border">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <div className="w-7 h-7 rounded-full bg-ink text-white text-xs font-bold flex items-center justify-center shrink-0">
+                              {(r.user_name||'?').slice(0,1).toUpperCase()}
+                            </div>
+                            <span className="text-sm font-bold text-ink">{r.user_name}</span>
+                            <span className="text-xs text-muted">{fmtDate(r.date)}</span>
+                          </div>
+                          <div className="flex gap-4 mt-1">
+                            <div>
+                              <p className="text-[10px] text-muted uppercase tracking-wider">거리</p>
+                              <p className="text-base font-black text-ink">{Number(r.km).toFixed(1)}<span className="text-xs font-normal ml-0.5">km</span></p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-muted uppercase tracking-wider">페이스</p>
+                              <p className="text-base font-black text-ink">{fmtPace(r.km, r.minutes)}<span className="text-xs font-normal ml-0.5">/km</span></p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-muted uppercase tracking-wider">시간</p>
+                              <p className="text-base font-black text-ink">{r.minutes}<span className="text-xs font-normal ml-0.5">분</span></p>
+                            </div>
+                          </div>
+                          {r.memo && <p className="text-xs text-muted mt-2 italic">"{r.memo}"</p>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ExplorePage() {
+      const { navigate } = useRouter();
+      const { user } = useAuthCtx();
+      const [courses, setCourses] = useState(SAMPLE_COURSES);
+      const [showForm, setShowForm] = useState(false);
+      const [search, setSearch] = useState('');
+      const [copied, setCopied] = useState(null);
+      const [selectedCourse, setSelectedCourse] = useState(null);
+
+      // Load from server, fallback to sample
+      useEffect(() => {
+        api.get('/api/courses')
+          .then(data => {
+            if (data.length > 0)
+              setCourses(data.map(c => ({ ...c, mapUrl: c.map_url || c.mapUrl || '', imageUrl: c.image_url || '' })));
+          })
+          .catch(() => {});
+      }, []);
+
+      const filtered = courses.filter(c =>
+        c.city.includes(search) || c.name.includes(search) || (c.country||'').includes(search)
+      );
+
+      const copyLink = (course) => {
+        const url = course.mapUrl || course.map_url || '';
+        navigator.clipboard.writeText(url).then(() => {
+          setCopied(course.id);
+          setTimeout(() => setCopied(null), 2000);
+        });
+      };
+
+      const openMaps = (course) => {
+        const url = course.mapUrl || course.map_url || '';
+        if (url) window.open(url, '_blank');
+      };
+
+      const addCourse = async (newCourse) => {
+        const { imageFile, ...rest } = newCourse;
+        const formData = new FormData();
+        Object.entries(rest).forEach(([k, v]) => { if (v != null && v !== '') formData.append(k, v); });
+        if (imageFile) formData.append('image', imageFile);
+        if (user) { formData.append('userId', user.id); formData.append('userName', user.name); }
+        try {
+          const saved = await api.postForm('/api/courses', formData);
+          setCourses(prev => [{ ...saved, mapUrl: saved.map_url||'', imageUrl: saved.image_url||'' }, ...prev]);
+        } catch {
+          setCourses(prev => [{ ...rest, id:'local_'+Date.now(), mapUrl: rest.mapUrl||'', imageUrl:'' }, ...prev]);
+        }
+        setShowForm(false);
+      };
+
+      const deleteCourse = async (id) => {
+        if (!confirm('이 코스를 삭제할까요?')) return;
+        try { await api.del(`/api/courses/${id}`, { userId: user?.id }); } catch {}
+        setCourses(prev => prev.filter(c => c.id !== id));
+      };
+
+      return (
+        <>
+        <PhoneFrame>
+          <TopBar title="러닝 코스" />
+          <div className="px-5 pt-4 pb-28 space-y-4 fade-up">
+            {/* Search */}
+            <div className="relative">
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="도시 또는 코스명 검색"
+                className="w-full bg-white border border-border rounded-xl px-4 py-3 text-ink placeholder-muted focus:border-ink outline-none pr-10"
+              />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted text-lg">×</button>
+              )}
+            </div>
+
+            {/* Add course button */}
+            <Button variant="coral" size="md" onClick={() => setShowForm(true)} className="w-full">
+              + 코스 등록하기
+            </Button>
+
+            {/* Course cards */}
+            <div className="space-y-3">
+              {filtered.length === 0 && (
+                <div className="text-center py-12 text-muted text-sm">검색 결과가 없습니다</div>
+              )}
+              {filtered.map(course => {
+                const imgSrc = course.imageUrl || course.image_url || '';
+                return (
+                  <Card key={course.id} className="overflow-hidden cursor-pointer hover:border-ink transition"
+                    onClick={() => setSelectedCourse(course)}>
+                    {/* Photo thumbnail */}
+                    {imgSrc && (
+                      <img src={imgSrc} alt={course.name}
+                        className="w-full h-44 object-cover"
+                        onError={e => { e.target.style.display='none'; }}
+                      />
+                    )}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-base">{flagOf(course.country)}</span>
+                            <span className="text-xs text-muted">{course.city} · {course.country}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                              course.difficulty === '초급' ? 'bg-green-50 text-green-700' :
+                              course.difficulty === '중급' ? 'bg-amber-50 text-amber-700' :
+                              'bg-red-50 text-red-700'
+                            }`}>{course.difficulty}</span>
+                          </div>
+                          <h3 className="font-bold text-ink text-base leading-snug">{course.name}</h3>
+                          {course.user_name && course.user_name !== '익명' && (
+                            <p className="text-xs text-muted mt-0.5">by {course.user_name}</p>
+                          )}
+                          <p className="text-sm text-muted mt-1 leading-relaxed line-clamp-2">{course.description}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-coral">{course.distance} km</span>
+                              <span className="text-muted text-xs">· {fmtDate(course.date)}</span>
+                            </div>
+                            <span className="text-xs text-muted flex items-center gap-1">
+                              러너 기록 보기 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                            </span>
+                          </div>
+                        </div>
+                        {user && (user.isAdmin || String(user.id) === String(course.user_id)) && (
+                          <button onClick={e => { e.stopPropagation(); deleteCourse(course.id); }}
+                            className="text-muted hover:text-red-400 transition text-lg shrink-0 leading-none ml-2">×</button>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Add course modal */}
+          {showForm && <CourseForm onAdd={addCourse} onClose={() => setShowForm(false)} />}
+
+          <BottomNav />
+        </PhoneFrame>
+
+        {/* Course detail overlay */}
+        {selectedCourse && (
+          <CourseDetail course={selectedCourse} onClose={() => setSelectedCourse(null)} />
+        )}
+        </>
+      );
+    }
+
+    // ========================================
+    // App + Routes
+    // ========================================
+    function App() {
+      const auth = useAuth();
+      const [runs, setRuns] = useState([]);
+
+      // Load runs from server when user logs in
+      useEffect(() => {
+        if (!auth.user) { setRuns([]); return; }
+        api.get(`/api/runs?userId=${auth.user.id}`)
+          .then(data => setRuns(data.map(r => ({ ...r, km: parseFloat(r.km) }))))
+          .catch(() => setRuns(loadRuns())); // fallback to localStorage
+      }, [auth.user?.id]);
+
+      const addRun = async (run) => {
+        try {
+          const saved = await api.post('/api/runs', { ...run, userId: auth.user.id });
+          const normalized = { ...saved, km: parseFloat(saved.km) };
+          setRuns(prev => [normalized, ...prev]);
+          return normalized;
+        } catch {
+          const localRun = { ...run, id: run.id || Date.now() };
+          setRuns(prev => [localRun, ...prev]);
+          return localRun;
+        }
+      };
+
+      const deleteRun = async (id) => {
+        try { await api.del(`/api/runs/${id}`, { userId: auth.user?.id }); } catch {}
+        setRuns(prev => prev.filter(x => x.id !== id));
+      };
+
+      return (
+        <AuthContext.Provider value={auth}>
+          <Router>
+            <Routes runs={runs} addRun={addRun} deleteRun={deleteRun} />
+          </Router>
+        </AuthContext.Provider>
+      );
+    }
+
+    function Routes({ runs, addRun, deleteRun }) {
+      const { path, state, navigate } = useRouter();
+      const { user } = useAuthCtx();
+
+      const protectedRoutes = ['record', 'history', 'stamp', 'profile', 'explore'];
+
+      useEffect(() => {
+        if (!user && protectedRoutes.includes(path)) {
+          navigate('login');
+        }
+      }, [path, user, navigate]);
+
+      switch (path) {
+        case 'login':
+          return <LoginPage />;
+        case 'record':
+          if (!user) return <LoginPage />;
+          return <RecordPage onSave={addRun} />;
+        case 'stamp':
+          if (!user) return <LoginPage />;
+          return <StampPage initial={state} />;
+        case 'history':
+          if (!user) return <LoginPage />;
+          return <HistoryPage runs={runs} onDelete={deleteRun} />;
+        case 'profile':
+          if (!user) return <LoginPage />;
+          return <ProfilePage runs={runs} />;
+        case 'explore':
+          if (!user) return <LoginPage />;
+          return <ExplorePage />;
+        case 'home':
+        default:
+          return user ? <HomePersonal runs={runs} /> : <HomeCommunity />;
+      }
+    }
+
+    // ========================================
+    // Render
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
