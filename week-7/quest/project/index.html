@@ -1743,12 +1743,6 @@
               >
                 <Icon.Photo width="13" height="13" /> 사진
               </button>
-              {/* Drag hint */}
-              {!isDragging && offset.x === 0 && offset.y === 0 && scale === 1.0 && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
-                  <span className="bg-black/50 text-white/70 text-[10px] px-2.5 py-1 rounded-full">드래그 위치 · 두 손가락 크기 조정</span>
-                </div>
-              )}
               {/* Reset offset button */}
               {(offset.x !== 0 || offset.y !== 0 || scale !== 1.0) && (
                 <button
@@ -2344,15 +2338,16 @@
     // ========================================
     // Page: Profile
     // ========================================
-    function ProfilePage({ runs }) {
+    function ProfilePage({ runs, onDelete }) {
       const { navigate } = useRouter();
       const { user, logout } = useAuthCtx();
+      const [showGlobe, setShowGlobe] = useState(false);
 
       const stats = useMemo(() => {
         const countries = new Set(runs.map(r => r.country).filter(Boolean));
         const cities = new Set(runs.map(r => `${r.country}/${r.city}`).filter(Boolean));
         const totalKm = runs.reduce((s,r) => s + Number(r.km || 0), 0);
-        return { countries: countries.size, cities: cities.size, totalKm, count: runs.length };
+        return { countries: countries.size, cities: cities.size, totalKm, count: runs.length, countriesList: [...countries] };
       }, [runs]);
 
       const handleLogout = () => {
@@ -2369,6 +2364,7 @@
       }, [runs]);
 
       return (
+        <>
         <PhoneFrame>
           <TopBar
             title="프로필"
@@ -2395,14 +2391,18 @@
             </div>
           </div>
 
-          {/* 4-stat grid */}
+          {/* 4-stat grid — tap to open globe */}
           <div className="px-6 mt-6 fade-up">
-            <div className="grid grid-cols-4 bg-white border border-border rounded-2xl py-5">
+            <button
+              onClick={() => setShowGlobe(true)}
+              className="w-full grid grid-cols-4 bg-white border border-border rounded-2xl py-5 hover:border-ink transition active:scale-[0.99]"
+            >
               <StatBig value={stats.countries} label="나라" />
               <StatBig value={stats.cities} label="도시" />
               <StatBig value={stats.totalKm.toFixed(0)} label="km" />
               <StatBig value={stats.count} label="횟수" />
-            </div>
+            </button>
+            <p className="text-[10px] text-muted text-center mt-1.5">탭하면 지구본을 볼 수 있어요</p>
           </div>
 
           {/* Recent runs */}
@@ -2414,7 +2414,18 @@
               </Card>
             ) : (
               <div className="space-y-2.5">
-                {recent.map(r => <RunCard key={r.id} run={r} onOpen={() => navigate('record', r)} />)}
+                {recent.map(r => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <RunCard run={r} onOpen={() => navigate('record', r)} />
+                    </div>
+                    <button
+                      onClick={() => { if (confirm('이 기록을 삭제할까요?')) onDelete(r.id); }}
+                      className="shrink-0 w-8 h-8 flex items-center justify-center text-muted hover:text-coral transition text-xl leading-none"
+                      aria-label="삭제"
+                    >×</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -2429,6 +2440,32 @@
 
           <BottomNav />
         </PhoneFrame>
+
+        {/* Globe modal */}
+        {showGlobe && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center" style={{maxWidth:'390px',margin:'0 auto'}}>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowGlobe(false)} />
+            <div className="relative w-full bg-white rounded-t-3xl px-6 pt-6 pb-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-ink">내가 달린 나라</h2>
+                <button onClick={() => setShowGlobe(false)} className="text-muted text-2xl leading-none w-8 h-8 flex items-center justify-center">×</button>
+              </div>
+              <div className="flex justify-center">
+                <WorldGlobe visitedCountries={stats.countriesList} />
+              </div>
+              {stats.countriesList.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {stats.countriesList.map(c => (
+                    <span key={c} className="text-[11px] bg-ink text-white px-2 py-0.5 rounded-full font-medium">{c}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted text-center mt-3">기록을 추가하면 달린 나라가 표시됩니다.</p>
+              )}
+            </div>
+          </div>
+        )}
+        </>
       );
     }
 
@@ -2692,12 +2729,14 @@
       const [selectedCourse, setSelectedCourse] = useState(null);
       const [continent, setContinent] = useState('all');
 
-      // Load from server, fallback to sample
+      // Load from server and merge with sample courses
       useEffect(() => {
         api.get('/api/courses')
           .then(data => {
-            if (data.length > 0)
-              setCourses(data.map(c => ({ ...c, mapUrl: c.map_url || c.mapUrl || '', imageUrl: c.image_url || '' })));
+            const dbCourses = data.map(c => ({ ...c, mapUrl: c.map_url || c.mapUrl || '', imageUrl: c.image_url || '' }));
+            const dbIds = new Set(dbCourses.map(c => String(c.id)));
+            const sampleOnly = SAMPLE_COURSES.filter(c => !dbIds.has(String(c.id)));
+            setCourses([...dbCourses, ...sampleOnly]);
           })
           .catch(() => {});
       }, []);
@@ -2934,7 +2973,7 @@
           return <HistoryPage runs={runs} onDelete={deleteRun} />;
         case 'profile':
           if (!user) return <LoginPage />;
-          return <ProfilePage runs={runs} />;
+          return <ProfilePage runs={runs} onDelete={deleteRun} />;
         case 'explore':
           if (!user) return <LoginPage />;
           return <ExplorePage />;
