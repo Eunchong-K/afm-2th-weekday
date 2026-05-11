@@ -40,7 +40,7 @@ pool.on('error', (err) => {
 const allowedOrigin = process.env.ORIGIN ? process.env.ORIGIN.trim() : '*';
 app.use(cors({
   origin: allowedOrigin,
-  methods: ['GET', 'POST', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
 }));
 app.use(express.json({ limit: '1mb' }));
 
@@ -223,6 +223,31 @@ app.delete('/api/runs/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM marked_runs WHERE id=$1 AND user_id=$2', [id, userId]);
     res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '서버 오류' });
+  }
+});
+
+app.put('/api/runs/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const userId = parseInt(req.body.userId, 10);
+  const city = str(req.body.city, 100);
+  const country = str(req.body.country, 100);
+  const date = str(req.body.date, 10);
+  const km = Math.min(Math.max(parseFloat(req.body.km) || 0, 0), 1000);
+  const minutes = Math.min(Math.max(parseInt(req.body.minutes, 10) || 0, 0), 1440);
+  const memo = str(req.body.memo, 500);
+  if (!id || !userId || !city || !country || !date)
+    return res.status(400).json({ error: '필수 입력값을 확인하세요.' });
+  try {
+    const r = await pool.query(
+      `UPDATE marked_runs SET city=$1, country=$2, date=$3, km=$4, minutes=$5, memo=$6
+       WHERE id=$7 AND user_id=$8 RETURNING *`,
+      [city, country, date, km, minutes, memo, id, userId]
+    );
+    if (r.rows.length === 0) return res.status(403).json({ error: '수정 권한이 없습니다.' });
+    res.json(r.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '서버 오류' });
